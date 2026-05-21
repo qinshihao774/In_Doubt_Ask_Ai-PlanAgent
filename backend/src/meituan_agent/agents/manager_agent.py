@@ -8,6 +8,8 @@ ManagerAgent — 决策管理
 
 from __future__ import annotations
 
+import os
+
 from meituan_agent.agents.execution_agent import ExecutionAgent
 from meituan_agent.agents.food_agent import FoodAgent
 from meituan_agent.agents.leisure_agent import LeisureAgent
@@ -87,11 +89,13 @@ class ManagerAgent:
                 plan = next(p for p in state.candidate_plans if p.id == state.selected_plan_id)
                 items = self._exec.build_itinerary(state)
                 html = build_itinerary_html(plan.title, plan.rationale, items)
-                send_itinerary_email(
-                    to_email="929488730@qq.com",
-                    subject=f"🍜 行程已就绪 — {plan.title}",
-                    html_body=html,
-                )
+                to_email = os.getenv("MEITUAN_AGENT_EMAIL_SENDER")
+                if to_email:
+                    send_itinerary_email(
+                        to_email=to_email,
+                        subject=f"🍜 行程已就绪 — {plan.title}",
+                        html_body=html,
+                    )
             except Exception:
                 pass
 
@@ -307,7 +311,14 @@ def _format_execution_summary(state: SessionState) -> str:
         lines.append("")
 
     lines.append("---")
-    lines.append("📧 完整行程已发送至 929488730@qq.com，请查收邮件。")
+    to_email = os.getenv("MEITUAN_AGENT_EMAIL_SENDER")
+    if to_email:
+        if "@" in to_email:
+            name, domain = to_email.split("@", 1)
+            masked_email = f"{name[:3]}***@{domain}" if len(name) > 3 else f"***@{domain}"
+        else:
+            masked_email = "***"
+        lines.append(f"📧 完整行程已发送至 {masked_email}，请查收邮件。")
     return "\n".join(lines)
 
 
