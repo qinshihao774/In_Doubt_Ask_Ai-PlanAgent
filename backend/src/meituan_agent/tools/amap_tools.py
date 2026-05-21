@@ -215,6 +215,19 @@ class AmapTools(POISearchTool, MapTool):
                 except Exception:
                     pass
 
+                raw_business_area = (item.get("biz_ext") or {}).get("business_area") or item.get("business_area")
+                business_area: str | None
+                if isinstance(raw_business_area, list):
+                    business_area = " / ".join([str(x).strip() for x in raw_business_area if str(x).strip()]) or None
+                elif isinstance(raw_business_area, dict):
+                    v = raw_business_area.get("name") or raw_business_area.get("value")
+                    business_area = str(v).strip() if v else None
+                elif raw_business_area is None:
+                    business_area = None
+                else:
+                    s = str(raw_business_area).strip()
+                    business_area = s or None
+
                 poi = POI(
                     id=item.get("id", ""),
                     name=item.get("name", ""),
@@ -227,7 +240,7 @@ class AmapTools(POISearchTool, MapTool):
                     tags=item.get("type", "").split(";"),
                     address=item.get("address", ""),
                     tel=item.get("tel") or None,
-                    business_area=(item.get("biz_ext") or {}).get("business_area") or item.get("business_area"),
+                    business_area=business_area,
                     image_url=image_url,
                     distance_from_user=dist,
                 )

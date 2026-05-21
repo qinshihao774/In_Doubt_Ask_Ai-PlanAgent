@@ -8,7 +8,9 @@ ManagerAgent — 决策管理
 
 from __future__ import annotations
 
+import logging
 import os
+from typing import Any, Generator
 
 from meituan_agent.agents.execution_agent import ExecutionAgent
 from meituan_agent.agents.food_agent import FoodAgent
@@ -18,6 +20,17 @@ from meituan_agent.agents.semantic_agent import SemanticAgent
 from meituan_agent.domain.models import SemanticSchema, SessionState, SessionStatus
 from meituan_agent.llm.openai_compat import OpenAICompatClient
 from meituan_agent.planning.planner import Planner, PlanningInput
+
+logger = logging.getLogger(__name__)
+
+PIPELINE_STAGES: list[dict[str, Any]] = [
+    {"id": "semantic", "label": "语义分析", "active_msg": "正在理解需求...", "done_msg": "需求理解完成", "icon": "🧠"},
+    {"id": "map", "label": "地图搜索", "active_msg": "正在定位与搜索地图...", "done_msg": "位置与周边搜索完成", "icon": "🗺️"},
+    {"id": "food", "label": "美食搜索", "active_msg": "正在为您寻找美食...", "done_msg": "美食搜索完成", "icon": "🍜"},
+    {"id": "leisure", "label": "休闲探索", "active_msg": "正在搜索休闲好去处...", "done_msg": "休闲探索完成", "icon": "🎯"},
+    {"id": "plan", "label": "方案规划", "active_msg": "正在生成行程方案...", "done_msg": "方案生成完毕", "icon": "📋"},
+    {"id": "execution", "label": "执行落地", "active_msg": "正在执行方案...", "done_msg": "执行完成", "icon": "🚀"},
+]
 
 
 class ManagerAgent:
@@ -110,6 +123,110 @@ class ManagerAgent:
         state = self._plan(state, excluded_poi_ids=set(), last_error=None)
 
         # 去重：不同方案的 POI 集合不能相同（即使顺序不同）
+        state = self._dedup_plans(state)
+
+        if not state.candidate_plans:
+            state.status = SessionStatus.awaiting_confirmation
+            return state, _format_plan_message(state, self._llm if use_llm else None)
+
+        state.status = SessionStatus.awaiting_confirmation
+        return state, _format_plan_message(state, self._llm if use_llm else None)
+
+    def step_stream(self, state: SessionState, user_message: str, *, use_llm: bool = True) -> Generator[dict[str, Any], None, tuple[SessionState, str]]:
+        """流式执行 step，在流水线各阶段之间 yield pipeline_stage 事件。
+
+        与 step() 逻辑完全一致，但每个 agent 阶段前后 yield 进度事件，
+        供前端渲染点线流程可视化。
+        """
+        def _emit(stage_id: str, status: str, msg: str | None = None) -> dict[str, Any]:
+            return {"type": "pipeline_stage", "stage_id": stage_id, "status": status, "msg": msg}
+
+        # ═══════════════════════════════════════════════════════════
+        # 阶段 0: 深度语义分析
+        # ═══════════════════════════════════════════════════════════
+        yield _emit("semantic", "running", "正在理解需求...")
+        if self._semantic is not None:
+            loc_label = state.location.label if state.location else "未知"
+            schema = self._semantic.analyze(user_message, location_label=loc_label)
+        else:
+            schema = SemanticSchema()
+        state.planning_context = schema
+        if schema.party.size is not None:
+            state.profile.party_size = schema.party.size
+        if schema.party.has_child is not None:
+            state.profile.has_child = schema.party.has_child
+        state.profile.fat_loss = bool(schema.food.dietary)
+        if schema.timing.duration_hours is not None:
+            state.profile.duration_hours = schema.timing.duration_hours
+        state.profile.style = _map_style(schema)
+        if schema.food.budget_per_person:
+            state.profile.budget_level = _budget_to_level(schema.food.budget_per_person)
+        yield _emit("semantic", "done", "需求理解完成")
+
+        # ═══════════════════════════════════════════════════════════
+        # 意图路由
+        # ═══════════════════════════════════════════════════════════
+        if schema.intent == "chat":
+            state.status = SessionStatus.planning
+            if self._llm:
+                return state, self._chat_reply(user_message)
+            return state, "你好呀！有什么可以帮你的吗？"
+
+        if schema.intent == "confirmation" and state.candidate_plans:
+            plan_id = _extract_plan_choice(user_message, state)
+            if plan_id:
+                state.selected_plan_id = plan_id
+            if not state.selected_plan_id:
+                state.selected_plan_id = state.candidate_plans[0].id
+            state.status = SessionStatus.executing
+
+            yield _emit("execution", "running", "正在执行方案...")
+            state = self._exec.execute_plan(state)
+            yield _emit("execution", "done", "执行完成" if not state.last_error else "执行遇到问题")
+
+            if state.last_error:
+                yield _emit("plan", "running", "正在重新规划...")
+                state = self._replan_after_failure(state)
+                yield _emit("plan", "done", "重规划完成")
+                return state, _format_replan_message(state, self._llm if use_llm else None)
+            state.status = SessionStatus.completed
+
+            try:
+                from meituan_agent.email_sender import build_itinerary_html, send_itinerary_email
+                plan = next(p for p in state.candidate_plans if p.id == state.selected_plan_id)
+                items = self._exec.build_itinerary(state)
+                html = build_itinerary_html(plan.title, plan.rationale, items)
+                to_email = os.getenv("MEITUAN_AGENT_EMAIL_SENDER")
+                if to_email:
+                    send_itinerary_email(
+                        to_email=to_email,
+                        subject=f"🍜 行程已就绪 — {plan.title}",
+                        html_body=html,
+                    )
+            except Exception:
+                pass
+
+            return state, _format_execution_summary(state)
+
+        # ═══════════════════════════════════════════════════════════
+        # 规划流水线: Map → Food → Leisure → Plan
+        # ═══════════════════════════════════════════════════════════
+        yield _emit("map", "running", "正在定位与搜索地图...")
+        state = self._map.run(state, user_message)
+        yield _emit("map", "done", "位置与周边搜索完成")
+
+        yield _emit("food", "running", "正在为您寻找美食...")
+        state = self._food.run(state, user_message)
+        yield _emit("food", "done", "美食搜索完成")
+
+        yield _emit("leisure", "running", "正在搜索休闲好去处...")
+        state = self._leisure.run(state, user_message)
+        yield _emit("leisure", "done", "休闲探索完成")
+
+        yield _emit("plan", "running", "正在生成行程方案...")
+        state = self._plan(state, excluded_poi_ids=set(), last_error=None)
+        yield _emit("plan", "done", "方案生成完毕")
+
         state = self._dedup_plans(state)
 
         if not state.candidate_plans:

@@ -9,6 +9,7 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 from starlette.responses import StreamingResponse
 
+from meituan_agent.agents.manager_agent import PIPELINE_STAGES
 from meituan_agent.asr.qwen_asr import QwenASRClient
 from meituan_agent.container import Container
 from meituan_agent.domain.models import ChatMessage, Location, SessionState
@@ -73,14 +74,32 @@ def create_app() -> FastAPI:
 
     @app.post("/chat/stream")
     async def chat_stream(req: ChatRequest):
-        state, base_reply = svc.chat_raw(
-            session_id=req.session_id,
-            message=req.message,
-            bootstrap_location=req.user_location,
-        )
+        state = svc.ensure_session(req.session_id)
+        if req.user_location and not state.scratch.get("location_hint"):
+            state.location = req.user_location
+            state.scratch["bootstrap_location"] = req.user_location.model_dump()
+        svc._memory.append_message(state.session_id, ChatMessage(role="user", content=req.message))
 
         async def event_gen():
-            yield _sse({"type": "session", "session_id": state.session_id})
+            nonlocal_state = state
+            yield _sse({"type": "session", "session_id": nonlocal_state.session_id})
+            yield _sse({"type": "pipeline_config", "stages": PIPELINE_STAGES})
+
+            gen = container.manager.step_stream(nonlocal_state, req.message, use_llm=True)
+            base_reply = ""
+
+            while True:
+                try:
+                    event = next(gen)
+                except StopIteration as e:
+                    nonlocal_state, base_reply = e.value
+                    break
+
+                if isinstance(event, dict) and event.get("type") == "pipeline_stage":
+                    yield _sse(event)
+                    await asyncio.sleep(0)
+
+            svc._memory.put_state(nonlocal_state)
 
             final_parts: list[str] = []
             for chunk in _chunk_text(base_reply, 24):
@@ -89,7 +108,7 @@ def create_app() -> FastAPI:
                 await asyncio.sleep(0)
 
             final = "".join(final_parts).strip() or base_reply
-            svc.append_assistant(state.session_id, final)
+            svc.append_assistant(nonlocal_state.session_id, final)
             yield _sse({"type": "done"})
 
         return StreamingResponse(event_gen(), media_type="text/event-stream")

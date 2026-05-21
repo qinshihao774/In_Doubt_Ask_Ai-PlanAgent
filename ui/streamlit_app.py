@@ -25,6 +25,7 @@ except ImportError:
 
 sys.path.insert(0, os.path.dirname(__file__))
 from styles.inspire_ui import inject_css
+from components.pipeline_viz import PipelineVisualizer
 
 load_dotenv()
 
@@ -97,6 +98,7 @@ class InspireChatApp:
 
     def _inject_styles(self):
         inject_css()
+        PipelineVisualizer.inject_css()
 
     def _ensure_session(self) -> str:
         if "session_id" not in st.session_state:
@@ -215,7 +217,11 @@ class InspireChatApp:
                         event_type = data.get("type", "")
                         if event_type == "session":
                             continue
-                        if event_type == "status":
+                        if event_type == "pipeline_config":
+                            yield {"type": "pipeline_config", "stages": data.get("stages", [])}
+                        elif event_type == "pipeline_stage":
+                            yield {"type": "pipeline_stage", "stage_id": data.get("stage_id", ""), "status": data.get("status", "")}
+                        elif event_type == "status":
                             yield {"type": "status", "content": data.get("content", ""), "is_done": False}
                         elif event_type == "delta":
                             yield {"type": "delta", "content": data.get("content", ""), "is_done": False}
@@ -487,16 +493,38 @@ class InspireChatApp:
             st.session_state.is_processing = False
             return
 
-        placeholder = st.empty()
+        pipeline_placeholder = st.empty()
+        response_placeholder = st.empty()
         accumulated = ""
-        placeholder.markdown(THINKING_SKELETON_HTML, unsafe_allow_html=True)
+        pipeline_config: list[dict] = []
+        pipeline_states: dict[str, str] = {}
+
+        response_placeholder.markdown(THINKING_SKELETON_HTML, unsafe_allow_html=True)
 
         try:
             for event in self._stream_chat(last_message):
                 et = event["type"]
 
-                if et == "status":
-                    placeholder.markdown(
+                if et == "pipeline_config":
+                    pipeline_config = event.get("stages") or []
+                    pipeline_states = {s["id"]: "pending" for s in pipeline_config if s.get("id")}
+                    pipeline_placeholder.empty()
+                    with pipeline_placeholder.container():
+                        PipelineVisualizer.render(pipeline_config, pipeline_states)
+                    continue
+
+                if et == "pipeline_stage":
+                    sid = event.get("stage_id", "")
+                    status = event.get("status", "")
+                    if sid and pipeline_states:
+                        pipeline_states[sid] = status
+                        pipeline_placeholder.empty()
+                        with pipeline_placeholder.container():
+                            PipelineVisualizer.render(pipeline_config, pipeline_states)
+                    continue
+
+                elif et == "status":
+                    response_placeholder.markdown(
                         THINKING_STATUS_HTML.format(status_text=event["content"]),
                         unsafe_allow_html=True,
                     )
@@ -504,7 +532,7 @@ class InspireChatApp:
                 elif et == "delta":
                     accumulated += event["content"]
                     safe = accumulated.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
-                    placeholder.markdown(
+                    response_placeholder.markdown(
                         f"""<div class="message-row message-row--assistant">
                           {_AI_AVATAR_HTML}
                           <div class="message-bubble message-bubble--assistant">
@@ -518,7 +546,7 @@ class InspireChatApp:
                     if accumulated:
                         st.session_state.messages.append({"role": "assistant", "content": accumulated})
                         st.session_state.is_processing = False
-                        st.rerun()  # 立即重渲染 → 方案卡片即刻呈现
+                        st.rerun()
 
                 elif et == "error":
                     st.session_state.messages.append({"role": "assistant", "content": event["content"]})
