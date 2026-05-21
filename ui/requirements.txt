@@ -1,0 +1,8 @@
+# Inspire UI 前端依赖
+streamlit>=1.30.0
+httpx>=0.25.0
+python-dotenv>=1.0.0
+
+# 可选：增强型组件
+# streamlit-extras>=0.3.0
+# stqdm>=0.0.5

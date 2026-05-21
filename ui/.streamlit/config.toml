@@ -1,0 +1,15 @@
+[theme]
+# Inspire UI 深色主题
+primaryColor = "#FFD100"
+backgroundColor = "#0D0D15"
+secondaryBackgroundColor = "#1A1A2E"
+textColor = "#FFFFFF"
+font = "sans-serif"
+
+[server]
+enableCORS = false
+enableXsrfProtection = false
+maxUploadSize = 50
+
+[browser]
+gatherUsageStats = false

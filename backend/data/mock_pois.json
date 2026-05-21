@@ -1,0 +1,77 @@
+[
+  {
+    "id": "poi_light_food_001",
+    "name": "Green Bowl 轻食",
+    "category": "餐饮",
+    "lat": 39.9098,
+    "lng": 116.3995,
+    "address": "北京东城区示例路 1 号",
+    "rating": 4.7,
+    "price": 58,
+    "price_level": 2,
+    "tags": ["轻食", "沙拉", "减脂"],
+    "duration_minutes": 70,
+    "menu": [
+      {"name": "鸡胸肉能量碗", "price": 39},
+      {"name": "牛油果藜麦沙拉", "price": 36},
+      {"name": "低糖酸奶杯", "price": 18}
+    ]
+  },
+  {
+    "id": "poi_cantonese_001",
+    "name": "粤满庭",
+    "category": "餐饮",
+    "lat": 39.9071,
+    "lng": 116.4012,
+    "address": "北京东城区示例路 8 号",
+    "rating": 4.5,
+    "price": 92,
+    "price_level": 3,
+    "tags": ["粤菜", "家庭聚餐"],
+    "duration_minutes": 90,
+    "menu": [
+      {"name": "虾饺皇", "price": 36},
+      {"name": "烧味双拼", "price": 68},
+      {"name": "例汤", "price": 22}
+    ]
+  },
+  {
+    "id": "poi_kids_park_001",
+    "name": "童趣探索乐园",
+    "category": "亲子",
+    "lat": 39.9112,
+    "lng": 116.3958,
+    "address": "北京东城区亲子街 6 号",
+    "rating": 4.8,
+    "price": 88,
+    "price_level": 2,
+    "tags": ["亲子", "游乐", "儿童"],
+    "duration_minutes": 120
+  },
+  {
+    "id": "poi_book_001",
+    "name": "种子绘本馆",
+    "category": "亲子",
+    "lat": 39.9062,
+    "lng": 116.3941,
+    "address": "北京东城区阅读路 3 号",
+    "rating": 4.6,
+    "price": 35,
+    "price_level": 1,
+    "tags": ["亲子", "绘本", "阅读"],
+    "duration_minutes": 80
+  },
+  {
+    "id": "poi_exhibit_001",
+    "name": "城市艺术展",
+    "category": "休闲娱乐",
+    "lat": 39.913,
+    "lng": 116.402,
+    "address": "北京朝阳区艺术路 10 号",
+    "rating": 4.4,
+    "price": 68,
+    "price_level": 2,
+    "tags": ["展览", "艺术", "朋友"],
+    "duration_minutes": 100
+  }
+]
