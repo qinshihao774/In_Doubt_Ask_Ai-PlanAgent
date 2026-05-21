@@ -42,78 +42,6 @@
 - **语音输入**：可选接入千问 ASR（OpenAI 兼容），支持中/英/粤语
 - **邮件投递**：执行完成后将完整行程 HTML 邮件发送至用户邮箱
 
-## 目录结构
-
-```
-meituan_competition_agent/
-  .env                        # 环境变量（不含真实秘钥，已 gitignore）
-  .env.example                # 环境变量模板
-  .gitignore
-  README.md
-  backend/
-    requirements.txt
-    pyproject.toml
-    run_api.py                # FastAPI 启动入口
-    data/
-      mock_pois.json          # Mock 数据（离线演示用）
-    src/meituan_agent/
-      agents/                 # Agent 层
-        base.py               # Agent 抽象基类
-        manager_agent.py      # 编排调度 & 状态机
-        semantic_agent.py     # LLM 深度语义分析
-        map_agent.py          # 位置解析 & POI 预搜索
-        food_agent.py         # 餐饮搜索
-        leisure_agent.py      # 休闲娱乐搜索
-        execution_agent.py    # 方案执行落地
-      planning/               # 规划层
-        planner.py            # HeuristicPlanner / LLMPlanner / FallbackPlanner
-        schema.py             # LLM 规划输出 Schema
-      domain/
-        models.py             # 领域模型（SessionState / POI / ItineraryPlan / SemanticSchema 等）
-      memory/                 # 记忆 & 状态持久化
-        base.py               # MemoryStore 抽象接口
-        sqlite_store.py       # SQLite 实现
-        inmemory.py           # 内存实现（测试用）
-        factory.py            # 工厂方法
-      tools/                  # 工具层（全部通过接口注入）
-        base.py               # POISearchTool / MapTool / MenuInfoTool / AvailabilityTool / OrderTool / RPAExecutor 抽象
-        amap_tools.py         # 高德地图实现
-        osm_tools.py          # OpenStreetMap 实现（Nominatim + Overpass + OSRM）
-        mock_map.py           # Mock 地图
-        mock_meituan.py       # Mock 美团交易工具
-        mock_rpa.py           # Mock RPA
-      services/
-        session_service.py    # 会话服务（协调 Memory + Manager）
-      api/
-        main.py               # FastAPI 路由（/init /chat /chat/stream /asr/transcribe 等）
-      asr/
-        qwen_asr.py           # 千问语音识别
-      llm/
-        openai_compat.py      # OpenAI 兼容 LLM 客户端
-      config.py               # 配置加载（pydantic-settings）
-      container.py            # 依赖注入容器
-      email_sender.py         # 邮件发送
-      location_parser.py      # 用户消息中的位置实体提取
-    tests/                    # 测试
-      conftest.py
-      test_manager_flow.py
-      test_llm_planner_flow.py
-      test_location_planning_guardrails.py
-      test_map_provider_fallback.py
-      test_osm_overpass_resilience.py
-  ui/
-    requirements.txt
-    streamlit_app.py          # Streamlit 前端主入口
-    app_inspire.py
-    components/
-      animations.py           # 骨架屏 / 脉冲 / 打字机动画
-      geolocation.py          # 浏览器定位
-    pages/
-      chat_page.py
-    styles/
-      inspire_ui.py           # Inspire UI CSS 注入
-```
-
 ## Agent 职责详解
 
 ### 1. SemanticAgent — 深度语义分析
@@ -133,7 +61,6 @@ meituan_competition_agent/
 - 零硬编码规则——所有推理由 LLM 动态完成
 - LLM 不可用时回退为默认 `SemanticSchema`，系统仍可工作
 
-**源码位置**：[semantic_agent.py](backend/src/meituan_agent/agents/semantic_agent.py)
 
 ### 2. MapAgent — 位置解析 & POI 预搜索
 
@@ -149,8 +76,6 @@ meituan_competition_agent/
 - 预搜索周边餐饮和休闲 POI，写入 `state.scratch` 供后续 Agent 复用
 - 支持路线计算（`enrich_routes`）：为行程方案填充各 POI 之间的交通方式、耗时、距离
 
-**源码位置**：[map_agent.py](backend/src/meituan_agent/agents/map_agent.py)
-
 ### 3. FoodAgent — 餐饮搜索
 
 **职责**：根据语义分析中的餐饮约束，搜索和过滤餐厅候选。
@@ -164,8 +89,6 @@ meituan_competition_agent/
 - 去重 + 仅保留餐饮类 POI
 - 搜索结果不足时回退到 MapAgent 预搜索的 `nearby_food`
 
-**源码位置**：[food_agent.py](backend/src/meituan_agent/agents/food_agent.py)
-
 ### 4. LeisureAgent — 休闲娱乐搜索
 
 **职责**：根据语义分析中的休闲约束，搜索和过滤休闲娱乐候选。
@@ -175,8 +98,6 @@ meituan_competition_agent/
 - 增量半径搜索（同 FoodAgent）
 - 排除"餐饮"类 POI（由 FoodAgent 专责）
 - 按评分降序排列，取 Top 10 候选项
-
-**源码位置**：[leisure_agent.py](backend/src/meituan_agent/agents/leisure_agent.py)
 
 ### 5. Planner（规划层）— 方案生成
 
@@ -194,8 +115,6 @@ meituan_competition_agent/
 - 自动为方案内的 POI 序列计算路线（`enrich_routes`）
 - 每个方案包含 `id` / `title` / `rationale` / `items`（含路线信息）
 
-**源码位置**：[planner.py](backend/src/meituan_agent/planning/planner.py) / [schema.py](backend/src/meituan_agent/planning/schema.py)
-
 ### 6. ExecutionAgent — 方案执行落地
 
 **职责**：将用户确认的方案逐店执行，失败时通知 ManagerAgent 触发重规划。
@@ -212,8 +131,6 @@ meituan_competition_agent/
 4. 全部成功则设置 `state.status = completed`
 
 执行完成后通过 `build_itinerary` 构建完整行程数据（含路线和执行状态），供邮件和前端展示使用。
-
-**源码位置**：[execution_agent.py](backend/src/meituan_agent/agents/execution_agent.py)
 
 ### 7. ManagerAgent — 编排调度 & 状态机
 
@@ -245,7 +162,6 @@ planning → awaiting_confirmation → executing → completed
 - 发现重复时迭代重规划（最多 3 次），每次排除已用的 POI
 - 确保用户看到的是真正不同的选择
 
-**源码位置**：[manager_agent.py](backend/src/meituan_agent/agents/manager_agent.py)
 
 ## Agent 协作流程
 
@@ -408,7 +324,7 @@ class RPAExecutor(ABC):         # RPA 执行接口
 | 2 | OpenStreetMapTools | `map_provider=osm` 或 `auto` 且无高德 Key | 免费，Nominatim 地理编码 + Overpass POI + OSRM 路线 |
 | 3 | Mock | `map_provider=mock` | 本地 JSON，离线演示 |
 
-OSM 实现（[osm_tools.py](backend/src/meituan_agent/tools/osm_tools.py)）特色：
+OSM 实现特色：
 - **多公共实例容灾**：主 Overpass 实例不可用时自动切换 kumi.systems / private.coffee
 - **降级半径搜索**：大半径超时时自动缩小半径（4000m → 2500m）
 - **Nominatim 回退**：Overpass 完全不可用时切换 Nominatim 搜索
