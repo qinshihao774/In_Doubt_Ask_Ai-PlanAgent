@@ -5,12 +5,11 @@ Inspire UI 流体设计 — 聊天页面 v2.0
 
 from __future__ import annotations
 
+import html
 import json
 import os
-import queue
 import re
 import sys
-import threading
 import uuid
 
 import httpx
@@ -77,6 +76,35 @@ class ChatInterface:
                     if not data:
                         continue
                     yield json.loads(data)
+
+    def _iter_chat_stream_with_pipeline(self, session_id: str, message: str):
+        """SSE 流解析，支持 pipeline_config / pipeline_stage 事件。"""
+        with httpx.Client(timeout=None) as client:
+            with client.stream(
+                "POST",
+                f"{API_BASE}/chat/stream",
+                json={"session_id": session_id, "message": message},
+            ) as r:
+                r.raise_for_status()
+                for line in r.iter_lines():
+                    if not line or not line.startswith("data:"):
+                        continue
+                    data = line[5:].strip()
+                    if not data:
+                        continue
+                    obj = json.loads(data)
+                    etype = obj.get("type", "")
+                    if etype == "pipeline_config":
+                        yield {"type": "pipeline_config", "stages": obj.get("stages", [])}
+                    elif etype == "pipeline_stage":
+                        yield {"type": "pipeline_stage", "stage_id": obj.get("stage_id", ""), "status": obj.get("status", "")}
+                    elif etype == "status":
+                        yield {"type": "status", "content": obj.get("content", "")}
+                    elif etype == "delta":
+                        yield {"type": "delta", "content": obj.get("content", "")}
+                    elif etype == "done":
+                        yield {"type": "done"}
+                        return
 
     # ═══════════════════════════════════════════
     # 渲染
@@ -165,18 +193,31 @@ class ChatInterface:
         for msg in st.session_state.messages:
             role = msg["role"]
             content = msg["content"]
+            safe_content = html.escape(content)
             if role == "user":
                 st.markdown(f"""
                 <div class="message-row message-row--user">
-                    <div class="message-bubble message-bubble--user">{content}</div>
+                    <div class="message-bubble message-bubble--user">{safe_content}</div>
                 </div>
                 """, unsafe_allow_html=True)
             else:
                 st.markdown(f"""
                 <div class="message-row message-row--assistant">
-                    <div class="message-bubble message-bubble--assistant">{content}</div>
+                    <div class="message-bubble message-bubble--assistant">{safe_content}</div>
                 </div>
                 """, unsafe_allow_html=True)
+
+        # 思考状态
+        if st.session_state.get("is_typing"):
+            st.markdown("""
+            <div class="message-row message-row--assistant">
+                <div class="message-bubble message-bubble--assistant">
+                    <div class="thinking-dots">
+                        <span></span><span></span><span></span>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
 
         # 输入
         prompt = st.chat_input("✨ 描述你的需求，例如：下午2点出发，带5岁娃，老婆减脂，帮我规划4-6小时...")
@@ -189,36 +230,12 @@ class ChatInterface:
         if prompt:
             self._handle_user_message(prompt)
 
-        # 处理 AI 响应（含流水线可视化 — 通过 st.empty 实时更新）
-        self._process_with_pipeline()
-
     def _handle_user_message(self, prompt: str):
         st.session_state.messages.append({"role": "user", "content": prompt})
         st.session_state.is_typing = True
-        st.session_state.pipeline_config = []
-        st.session_state.pipeline_states = {}
-        st.session_state.stream_done = False
-
-        # 启动后台线程拉取 SSE 流
-        sid = st.session_state.session_id
-        evt_queue: queue.Queue = queue.Queue()
-
-        def _stream_worker():
-            try:
-                for chunk in self._iter_chat_stream(sid, prompt):
-                    evt_queue.put(chunk)
-                evt_queue.put({"type": "done"})
-            except Exception as e:
-                evt_queue.put({"type": "error", "error": str(e)})
-
-        t = threading.Thread(target=_stream_worker, daemon=True)
-        st.session_state._stream_thread = t
-        st.session_state._stream_queue = evt_queue
-        t.start()
         st.rerun()
 
-    def _process_with_pipeline(self):
-        """通过后台线程 + 轮询实现流水线实时更新。"""
+    def process_ai_response(self):
         if not st.session_state.get("is_typing"):
             return
 
@@ -227,91 +244,70 @@ class ChatInterface:
             if msg["role"] == "user":
                 last_user = msg["content"]
                 break
+
         if not last_user:
             st.session_state.is_typing = False
             return
 
-        evt_queue = st.session_state.get("_stream_queue")
-        if evt_queue is None:
-            st.session_state.is_typing = False
-            return
+        pipeline_placeholder = st.empty()
+        response_placeholder = st.empty()
+        pipeline_config: list[dict] = []
+        pipeline_states: dict[str, str] = {}
 
-        pipeline_config = list(st.session_state.get("pipeline_config", []))
-        pipeline_states = dict(st.session_state.get("pipeline_states", {}))
-        full_parts: list[str] = list(st.session_state.get("_stream_full_parts", []))
-
-        # 从队列中取出所有已有事件（非阻塞）
-        new_events = False
-        while True:
-            try:
-                chunk = evt_queue.get_nowait()
-            except queue.Empty:
-                break
-            new_events = True
-
-            etype = chunk.get("type")
-            if etype == "pipeline_config":
-                pipeline_config = chunk.get("stages", [])
-                pipeline_states = {s["id"]: "pending" for s in pipeline_config}
-                full_parts = []
-            elif etype == "pipeline_stage":
-                sid = chunk.get("stage_id")
-                status = chunk.get("status")
-                if sid:
-                    pipeline_states[sid] = status
-            elif etype == "delta":
-                full_parts.append(chunk.get("content", ""))
-            elif etype == "done":
-                st.session_state._stream_full_parts = full_parts
-                st.session_state.pipeline_config = pipeline_config
-                st.session_state.pipeline_states = pipeline_states
-                st.session_state.stream_done = True
-
-                # 清理
-                st.session_state._stream_queue = None
-                st.session_state._stream_thread = None
-                st.session_state._stream_full_parts = []
-
-                if full_parts:
-                    st.session_state.messages.append(
-                        {"role": "assistant", "content": "".join(full_parts)}
-                    )
-                st.session_state.is_typing = False
-                st.rerun()
-                return
-            elif etype == "error":
-                st.session_state.messages.append(
-                    {"role": "assistant", "content": f"抱歉，出现了一些问题：{chunk['error']}"}
-                )
-                st.session_state.is_typing = False
-                st.session_state._stream_queue = None
-                st.session_state._stream_thread = None
-                st.rerun()
-                return
-
-        # 持久化当前状态
-        st.session_state.pipeline_config = pipeline_config
-        st.session_state.pipeline_states = pipeline_states
-        st.session_state._stream_full_parts = full_parts
-
-        # 渲染流水线
-        if pipeline_config:
-            PipelineVisualizer.render(pipeline_config, pipeline_states)
-        else:
-            st.markdown("""
-            <div class="message-row message-row--assistant">
-                <div class="message-bubble message-bubble--assistant">
-                    <div class="thinking-dots">
-                        <span></span><span></span><span></span>
-                    </div>
-                </div>
+        response_placeholder.markdown("""
+        <div class="message-row message-row--assistant">
+            <div class="message-bubble message-bubble--assistant">
+                <div class="thinking-dots"><span></span><span></span><span></span></div>
             </div>
-            """, unsafe_allow_html=True)
+        </div>
+        """, unsafe_allow_html=True)
 
-        # 未完成则触发下一轮轮询
-        if not st.session_state.get("stream_done"):
-            import time
-            time.sleep(0.3)
+        try:
+            full = ""
+            for chunk in self._iter_chat_stream_with_pipeline(
+                st.session_state.session_id, last_user
+            ):
+                et = chunk.get("type")
+
+                if et == "pipeline_config":
+                    pipeline_config = chunk.get("stages") or []
+                    pipeline_states = {s["id"]: "pending" for s in pipeline_config if s.get("id")}
+                    pipeline_placeholder.empty()
+                    with pipeline_placeholder.container():
+                        PipelineVisualizer.render(pipeline_config, pipeline_states)
+                    continue
+
+                if et == "pipeline_stage":
+                    sid = chunk.get("stage_id", "")
+                    status = chunk.get("status", "")
+                    if sid and pipeline_states:
+                        pipeline_states[sid] = status
+                        pipeline_placeholder.empty()
+                        with pipeline_placeholder.container():
+                            PipelineVisualizer.render(pipeline_config, pipeline_states)
+                    continue
+
+                if et == "delta":
+                    full += chunk.get("content", "")
+                    safe = full.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
+                    response_placeholder.markdown(f"""
+                    <div class="message-row message-row--assistant">
+                        <div class="message-bubble message-bubble--assistant">{safe}<span class="typing-cursor"></span></div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                elif et == "done":
+                    break
+
+            if full:
+                st.session_state.messages.append(
+                    {"role": "assistant", "content": full}
+                )
+        except Exception as e:
+            st.session_state.messages.append(
+                {"role": "assistant", "content": f"抱歉，出现了一些问题：{str(e)}"}
+            )
+        finally:
+            st.session_state.is_typing = False
             st.rerun()
 
 
@@ -333,8 +329,10 @@ def render_page():
     ui = ChatInterface()
 
     ui.render_header()
+    ui.process_ai_response()
 
     col1, col2 = st.columns([1, 3])
+    # 先渲染聊天区（处理 AI 响应），再渲染侧边栏（读取最新方案数）
     with col2:
         ui.render_chat()
     with col1:

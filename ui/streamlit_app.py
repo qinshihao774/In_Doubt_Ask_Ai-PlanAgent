@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import base64
+import html
 import json
 import os
 import re
@@ -109,6 +110,10 @@ class InspireChatApp:
             st.session_state.connection_status = "checking"
         if "is_processing" not in st.session_state:
             st.session_state.is_processing = False
+        if "pipeline_config" not in st.session_state:
+            st.session_state.pipeline_config = []
+        if "pipeline_states" not in st.session_state:
+            st.session_state.pipeline_states = {}
         if "detected_location" not in st.session_state:
             st.session_state.detected_location = None
         if "active_plan_index" not in st.session_state:
@@ -443,9 +448,10 @@ class InspireChatApp:
             role = msg["role"]
             content = msg["content"]
             if role == "user":
+                safe_content = html.escape(content)
                 st.markdown(f"""
                 <div class="message-row message-row--user">
-                    <div class="message-bubble message-bubble--user">{content}</div>
+                    <div class="message-bubble message-bubble--user">{safe_content}</div>
                     {_USER_AVATAR_HTML}
                 </div>
                 """, unsafe_allow_html=True)
@@ -546,7 +552,7 @@ class InspireChatApp:
                     if accumulated:
                         st.session_state.messages.append({"role": "assistant", "content": accumulated})
                         st.session_state.is_processing = False
-                        st.rerun()
+                        st.rerun()  # 立即重渲染 → 方案卡片即刻呈现
 
                 elif et == "error":
                     st.session_state.messages.append({"role": "assistant", "content": event["content"]})

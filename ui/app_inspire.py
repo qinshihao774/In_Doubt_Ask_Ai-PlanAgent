@@ -4,6 +4,7 @@ Inspire UI - 私人规划执行助理
 """
 from __future__ import annotations
 
+import html
 import json
 import os
 import sys
@@ -35,21 +36,19 @@ class InspireChatApp:
     """Inspire UI 聊天应用主类"""
     
     def __init__(self):
-        self.session_id = self._ensure_session()
-        self._init_styles()
-        self._check_backend_connection()
-    
-    def _init_styles(self):
-        """初始化样式"""
-        add_custom_css()
-        
-        # 页面配置
         st.set_page_config(
             page_title="私人规划执行助理",
             page_icon="🍜",
             layout="wide",
-            initial_sidebar_state="expanded"
+            initial_sidebar_state="expanded",
         )
+        self.session_id = self._ensure_session()
+        self._init_styles()
+        self._check_backend_connection()
+
+    def _init_styles(self):
+        """初始化样式"""
+        add_custom_css()
     
     def _ensure_session(self) -> str:
         """确保会话存在"""
@@ -142,20 +141,25 @@ class InspireChatApp:
         """处理待处理的消息"""
         if not st.session_state.get("is_processing"):
             return
-        
-        # 获取最后一条用户消息
+
         last_message = None
         for msg in reversed(st.session_state.messages):
             if msg["role"] == "user":
                 last_message = msg["content"]
                 break
-        
+
         if not last_message:
             st.session_state.is_processing = False
             return
-        
-        # 创建占位符用于流式输出
+
         assistant_placeholder = st.empty()
+        assistant_placeholder.markdown(
+            "<div class='message-bubble message-assistant'>"
+            "<div class='thinking-dots'><span></span><span></span><span></span></div>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+
         accumulated_text = ""
         
         try:
@@ -181,14 +185,14 @@ class InspireChatApp:
             )
         
         finally:
-            # 添加到消息历史
             if accumulated_text:
                 st.session_state.messages.append({
                     "role": "assistant",
                     "content": accumulated_text
                 })
-            
+
             st.session_state.is_processing = False
+            st.rerun()
     
     def render_header(self):
         """渲染页面头部"""
@@ -441,59 +445,48 @@ class InspireChatApp:
 
 def main():
     """主入口函数"""
-    # 创建应用实例
     app = InspireChatApp()
-    
-    # 渲染头部
+
     app.render_header()
-    
-    # 创建两列布局
+
     col1, col2 = st.columns([1, 3])
-    
+
     with col1:
         app.render_sidebar()
-    
+
     with col2:
-        # 这里将渲染聊天界面
-        st.markdown("""
-        <div style="
-            background: rgba(255,255,255,0.03);
-            border: 1px solid rgba(255,255,255,0.08);
-            border-radius: 20px;
-            padding: 24px;
-            min-height: 500px;
-        ">
-            <div style="text-align: center; padding: 60px 0;">
-                <div style="font-size: 4rem; margin-bottom: 16px;">💬</div>
-                <div style="color: rgba(255,255,255,0.6); font-size: 1.1rem;">
-                    开始你的智能规划之旅<br>
-                    <span style="font-size: 0.9rem; opacity: 0.7;">在下方输入你的需求</span>
-                </div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-        
+        # 渲染历史消息
+        for msg in st.session_state.messages:
+            role = msg["role"]
+            content = msg["content"]
+            safe_content = html.escape(content)
+            if role == "user":
+                st.markdown(
+                    f"<div class='message-bubble message-assistant' style='text-align:right;'>{safe_content}</div>",
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.markdown(
+                    f"<div class='message-bubble message-assistant'>{safe_content}</div>",
+                    unsafe_allow_html=True,
+                )
+
+        # 处理中的思考动画 + 流式输出
+        if st.session_state.get("is_processing"):
+            app._process_pending_message()
+
         # 聊天输入框
         prompt = st.chat_input("✨ 描述你的需求...")
-        
+
         # 处理快捷发送
         pending = st.session_state.get("pending_message")
         if pending and not prompt:
             prompt = pending
             st.session_state.pending_message = None
-        
-        # 处理用户输入
+
         if prompt:
-            # 添加到消息历史
-            st.session_state.messages.append({
-                "role": "user",
-                "content": prompt
-            })
-            
-            # 标记正在处理
+            st.session_state.messages.append({"role": "user", "content": prompt})
             st.session_state.is_processing = True
-            
-            # 重新加载以显示用户消息
             st.rerun()
 
 

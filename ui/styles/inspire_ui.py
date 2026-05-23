@@ -69,7 +69,8 @@ CSS_STYLES = """
     overflow-x: hidden;
 }
 
-#MainMenu, footer, header { visibility: hidden; }
+#MainMenu, footer { visibility: hidden; }
+header [data-testid="stHeader"] { visibility: hidden; }
 
 /* ═══════════════════════════════════════════════════════════
    极光流体背景 — 多层变形光球
