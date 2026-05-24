@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -32,5 +34,13 @@ class Settings(BaseSettings):
 
 
 def load_settings() -> Settings:
-    return Settings()
+    s = Settings()
+    root = Path(__file__).resolve().parents[3]
+    data_dir = Path(s.data_dir)
+    sqlite_path = Path(s.sqlite_path)
+    if not data_dir.is_absolute():
+        s.data_dir = str((root / data_dir).resolve())
+    if not sqlite_path.is_absolute():
+        s.sqlite_path = str((root / sqlite_path).resolve())
+    return s
 

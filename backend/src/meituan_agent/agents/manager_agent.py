@@ -74,6 +74,9 @@ class ManagerAgent:
         if schema.food.budget_per_person:
             state.profile.budget_level = _budget_to_level(schema.food.budget_per_person)
 
+        if schema.intent != "confirmation" and state.candidate_plans and _is_confirmation(user_message):
+            schema.intent = "confirmation"
+
         # ═══════════════════════════════════════════════════════════
         # 意图路由
         # ═══════════════════════════════════════════════════════════
@@ -166,6 +169,9 @@ class ManagerAgent:
         # ═══════════════════════════════════════════════════════════
         # 意图路由
         # ═══════════════════════════════════════════════════════════
+        if schema.intent != "confirmation" and state.candidate_plans and _is_confirmation(user_message):
+            schema.intent = "confirmation"
+
         if schema.intent == "chat":
             state.status = SessionStatus.planning
             if self._llm:

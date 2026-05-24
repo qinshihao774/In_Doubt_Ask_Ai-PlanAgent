@@ -3,11 +3,13 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field
-from starlette.responses import StreamingResponse
+from starlette.responses import FileResponse, StreamingResponse
+from starlette.staticfiles import StaticFiles
 
 from meituan_agent.agents.manager_agent import PIPELINE_STAGES
 from meituan_agent.asr.qwen_asr import QwenASRClient
@@ -46,6 +48,26 @@ def create_app() -> FastAPI:
     container = Container()
     svc = SessionService(container.memory, container.manager)
     app = FastAPI(title="Meituan Competition Agent", version="0.1.0")
+
+    dist_dir = Path(__file__).resolve().parents[4] / "webui" / "dist"
+    assets_dir = dist_dir / "assets"
+    if dist_dir.exists() and assets_dir.exists():
+        app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
+        app.mount("/ui/assets", StaticFiles(directory=str(assets_dir)), name="ui-assets")
+
+        favicon = dist_dir / "favicon.svg"
+        if favicon.exists():
+            @app.get("/favicon.svg", include_in_schema=False)
+            def favicon_svg():
+                return FileResponse(str(favicon))
+
+        @app.get("/ui", include_in_schema=False)
+        @app.get("/ui/{path:path}", include_in_schema=False)
+        def ui(path: str = ""):
+            target = (dist_dir / path).resolve()
+            if path and target.exists() and target.is_file() and str(target).startswith(str(dist_dir.resolve())):
+                return FileResponse(str(target))
+            return FileResponse(str(dist_dir / "index.html"))
 
     @app.get("/")
     def root() -> dict[str, Any]:
