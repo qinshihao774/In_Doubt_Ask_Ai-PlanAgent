@@ -11,6 +11,7 @@ export const state = {
   locationPermission: 'unknown',
   detectedLocation: null,
   weather: null,
+  sessions: [],
   activePlanIndex: 0,
 }
 
@@ -30,5 +31,6 @@ export const resetState = () => {
   state.pipelineStates = {}
   state.detectedLocation = null
   state.weather = null
+  state.sessions = []
   state.activePlanIndex = 0
 }

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from datetime import datetime
+from typing import Any
 
 from meituan_agent.domain.models import ChatMessage, SessionState
 from meituan_agent.memory.base import MemoryStore
@@ -94,6 +95,53 @@ class SQLiteStore(MemoryStore):
                     content=r["content"],
                     ts=datetime.fromisoformat(r["ts"]),
                 )
+            )
+        return out
+
+    def list_sessions(self, limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                  s.session_id,
+                  s.updated_at,
+                  (
+                    SELECT role
+                    FROM session_message m
+                    WHERE m.session_id = s.session_id
+                    ORDER BY m.id DESC
+                    LIMIT 1
+                  ) AS last_role,
+                  (
+                    SELECT content
+                    FROM session_message m
+                    WHERE m.session_id = s.session_id
+                    ORDER BY m.id DESC
+                    LIMIT 1
+                  ) AS last_content,
+                  (
+                    SELECT ts
+                    FROM session_message m
+                    WHERE m.session_id = s.session_id
+                    ORDER BY m.id DESC
+                    LIMIT 1
+                  ) AS last_ts
+                FROM session_state s
+                ORDER BY s.updated_at DESC
+                LIMIT ? OFFSET ?
+                """,
+                (limit, offset),
+            ).fetchall()
+        out: list[dict[str, Any]] = []
+        for r in rows:
+            out.append(
+                {
+                    "session_id": r["session_id"],
+                    "updated_at": r["updated_at"],
+                    "last_role": r["last_role"],
+                    "last_content": r["last_content"],
+                    "last_ts": r["last_ts"],
+                }
             )
         return out
 

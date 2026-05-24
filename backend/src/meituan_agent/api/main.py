@@ -154,6 +154,10 @@ def create_app() -> FastAPI:
     def get_messages(session_id: str, limit: int = 50) -> list[ChatMessage]:
         return svc.get_messages(session_id, limit=limit)
 
+    @app.get("/sessions", response_model=list[dict[str, Any]])
+    def list_sessions(limit: int = 30, offset: int = 0) -> list[dict[str, Any]]:
+        return svc.list_sessions(limit=limit, offset=offset)
+
     @app.post("/asr/transcribe", response_model=dict[str, Any])
     async def asr_transcribe(file: UploadFile = File(...), language: str | None = None) -> dict[str, Any]:
         if (container.settings.asr_provider or "none").lower() != "qwen":

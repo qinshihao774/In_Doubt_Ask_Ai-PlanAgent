@@ -14,6 +14,30 @@ export const initSession = async (apiBase, sessionId) => {
   return r.json()
 }
 
+export const fetchMessages = async (apiBase, sessionId, limit = 200) => {
+  const base = apiBase || ''
+  const url = `${base}/messages/${encodeURIComponent(sessionId)}?limit=${encodeURIComponent(String(limit))}`
+  const r = await fetch(url, { method: 'GET' })
+  if (!r.ok) throw new Error('messages_failed')
+  return r.json()
+}
+
+export const fetchState = async (apiBase, sessionId) => {
+  const base = apiBase || ''
+  const url = `${base}/state/${encodeURIComponent(sessionId)}`
+  const r = await fetch(url, { method: 'GET' })
+  if (!r.ok) throw new Error('state_failed')
+  return r.json()
+}
+
+export const fetchSessions = async (apiBase, limit = 30, offset = 0) => {
+  const base = apiBase || ''
+  const url = `${base}/sessions?limit=${encodeURIComponent(String(limit))}&offset=${encodeURIComponent(String(offset))}`
+  const r = await fetch(url, { method: 'GET' })
+  if (!r.ok) throw new Error('sessions_failed')
+  return r.json()
+}
+
 export const streamChat = async (apiBase, payload, onEvent) => {
   const r = await fetch(`${apiBase}/chat/stream`, {
     method: 'POST',

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 from meituan_agent.domain.models import ChatMessage, Location, SessionState, SessionStatus
 from meituan_agent.memory.base import MemoryStore
@@ -62,4 +63,7 @@ class SessionService:
 
     def get_messages(self, session_id: str, limit: int = 50) -> list[ChatMessage]:
         return self._memory.list_messages(session_id, limit=limit)
+
+    def list_sessions(self, limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
+        return self._memory.list_sessions(limit=limit, offset=offset)
 

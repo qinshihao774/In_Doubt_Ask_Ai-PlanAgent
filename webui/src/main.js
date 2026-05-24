@@ -1,10 +1,9 @@
 import './style.css'
-import { fetchWeather, health, initSession, streamChat } from './api'
+import { fetchMessages, fetchSessions, fetchState, fetchWeather, health, initSession, streamChat } from './api'
 import { state, loadState, resetState } from './state'
 import { parsePlans, renderPlanCardsHtml } from './plans'
 import { renderPipeline } from './pipeline'
 import { getBrowserLocation, reverseGeocodeNominatim } from './location'
-import { initSmoke } from './smoke'
 
 const esc = (s) =>
   (s || '')
@@ -18,7 +17,6 @@ const mount = () => {
   const root = document.querySelector('#app')
   root.innerHTML = `
   <div class="bg">
-    <canvas id="smoke" class="smoke-layer"></canvas>
     <div class="aurora a1"></div>
     <div class="aurora a2"></div>
     <div class="noise"></div>
@@ -49,7 +47,12 @@ const mount = () => {
         <div class="session-card__id" id="session-id"></div>
       </div>
       <div class="session-card session-card--mini" id="detected-loc-card" style="display:none"></div>
-      <button class="btn btn--ghost btn--block" id="reset-session">重置会话</button>
+      <div class="divider"></div>
+      <div class="session-card session-card--mini">
+        <div class="session-card__label">历史对话</div>
+        <div class="session-list" id="session-list"></div>
+      </div>
+      <button class="btn btn--ghost btn--block" id="new-session">新建对话</button>
     </aside>
     <section class="chat">
       <div class="messages" id="messages"></div>
@@ -182,6 +185,72 @@ const showProcessing = (on) => {
   document.querySelector('#processing').style.display = on ? 'block' : 'none'
 }
 
+const renderSessionList = () => {
+  const box = document.querySelector('#session-list')
+  const items = state.sessions || []
+  if (!items.length) {
+    box.innerHTML = `<div class="session-empty">暂无历史</div>`
+    return
+  }
+  box.innerHTML = items
+    .map((s) => {
+      const sid = s.session_id
+      const active = sid === state.sessionId
+      const raw = (s.last_content || '').trim()
+      const preview = raw ? esc(raw).slice(0, 26) : '（空会话）'
+      return `<button class="session-item ${active ? 'session-item--on' : ''}" data-sid="${esc(sid)}" type="button">
+        <div class="session-item__id">${esc(sid)}</div>
+        <div class="session-item__preview">${preview}</div>
+      </button>`
+    })
+    .join('')
+
+  box.querySelectorAll('[data-sid]').forEach((el) => {
+    el.addEventListener('click', async () => {
+      const sid = el.getAttribute('data-sid')
+      if (!sid || sid === state.sessionId || state.isProcessing) return
+      await loadSession(sid)
+    })
+  })
+}
+
+const refreshSessions = async () => {
+  try {
+    state.sessions = await fetchSessions(state.apiBase, 30, 0)
+  } catch {
+    state.sessions = []
+  }
+  renderSessionList()
+}
+
+const loadSession = async (sid) => {
+  state.sessionId = sid
+  localStorage.setItem('meituan_session_id', state.sessionId)
+  document.querySelector('#session-id').textContent = state.sessionId
+  state.messages = []
+  state.activePlanIndex = 0
+  showProcessing(false)
+  renderPipeline(document.querySelector('#pipeline'), [], {})
+  updateThinking('正在加载历史对话...')
+  try {
+    await initSession(state.apiBase, state.sessionId)
+  } catch {}
+  try {
+    const st = await fetchState(state.apiBase, state.sessionId)
+    if (st && st.location) state.detectedLocation = st.location
+    state.weather = (st && st.scratch && st.scratch.weather) || null
+  } catch {}
+  try {
+    const msgs = await fetchMessages(state.apiBase, state.sessionId, 200)
+    state.messages = (msgs || []).map((m) => ({ role: m.role, content: m.content }))
+  } catch {
+    state.messages = []
+  }
+  setLocationUi()
+  renderMessages()
+  await refreshSessions()
+}
+
 const thinkingHtml = (text) => `
 <div class="thinking">
   <div class="thinking-ring"></div>
@@ -265,6 +334,7 @@ const sendMessage = async (text) => {
   state.isProcessing = false
   showProcessing(false)
   renderMessages()
+  await refreshSessions()
 }
 
 const bind = () => {
@@ -278,7 +348,7 @@ const bind = () => {
     sendMessage(v)
   })
 
-  document.querySelector('#reset-session').addEventListener('click', async () => {
+  document.querySelector('#new-session').addEventListener('click', async () => {
     resetState()
     document.querySelector('#session-id').textContent = state.sessionId
     state.messages = []
@@ -288,6 +358,7 @@ const bind = () => {
     } catch {
       setStatus('offline')
     }
+    await refreshSessions()
   })
 
   document.querySelector('#geo-skip').addEventListener('click', () => {
@@ -340,14 +411,13 @@ const boot = async () => {
   loadState()
   mount()
   bind()
-  initSmoke(document.querySelector('#smoke'), { hue: 140, scale: 0.62, fade: 0.07, curl: 2.4, size: 30, zoom: 1.016, speed: 0.95 })
   setLocationUi()
   renderMessages()
   setStatus('checking')
   try {
     await health(state.apiBase)
     setStatus('online')
-    await initSession(state.apiBase, state.sessionId)
+    await loadSession(state.sessionId)
   } catch {
     setStatus('offline')
   }

@@ -38,16 +38,6 @@ body{
 }
 
 .bg{position:absolute;inset:0;pointer-events:none;overflow:hidden}
-.smoke-layer{
-  position:absolute;
-  inset:0;
-  width:100%;
-  height:100%;
-  filter:blur(22px) saturate(1.18);
-  opacity:.70;
-  mix-blend-mode:screen;
-  transform:translateZ(0);
-}
 .aurora{
   position:absolute;
   width:900px;
@@ -226,6 +216,21 @@ body{
 .session-card__label{font-size:12px;color:rgba(231,233,255,.48);margin-bottom:6px;font-weight:650}
 .session-card__id{font-family:var(--mono);font-size:12px;color:rgba(231,233,255,.80);word-break:break-all}
 .session-card--mini .session-card__id{font-family:var(--sans);font-size:12px}
+.session-list{display:flex;flex-direction:column;gap:8px;max-height:260px;overflow:auto;padding-right:4px}
+.session-empty{color:rgba(231,233,255,.42);font-size:12px;padding:6px 2px}
+.session-item{
+  text-align:left;
+  border-radius:12px;
+  border:1px solid rgba(255,255,255,.08);
+  background:rgba(10,12,22,.34);
+  padding:10px 10px 9px;
+  cursor:pointer;
+  transition:transform .12s ease, border-color .2s ease, background .2s ease;
+}
+.session-item:hover{transform:translateY(-1px);border-color:rgba(255,255,255,.16);background:rgba(10,12,22,.42)}
+.session-item--on{border-color:rgba(255,209,0,.28);background:rgba(255,209,0,.08)}
+.session-item__id{font-size:12px;color:rgba(231,233,255,.72)}
+.session-item__preview{margin-top:4px;font-size:12px;color:rgba(231,233,255,.48);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 .chat{
   padding:16px 16px 14px;
