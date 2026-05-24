@@ -78,6 +78,12 @@ class ExecutionAgent(Agent):
                 state.last_error = f"排队检查失败: {poi_name}"
                 return state
 
+            # 只检查了 ok，没有检查 queue_minutes
+            # 虽然 ExecutionAgent 构造时接受了 max_queue_minutes，但此阈值未被使用
+            if av.get("queue_minutes",0) > self._max_queue:
+                state.last_error = f"排队超时: {poi_name} 需等待{av['queue_minutes']} 分钟"
+                return state
+
             # 2) 菜单查询
             menu = self._menu.get_menu_info(poi_id, fat_content=state.profile.fat_loss)
             state.executions.append(ExecutionResult(

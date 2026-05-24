@@ -30,7 +30,7 @@ def _build_service(tmp_path):
     memory = InMemoryStore()
     return SessionService(memory, manager)
 
-
+# 测试期望：发送"确认 方案1"后进入执行流程，产生 executions 记录。
 def test_plan_and_execute(tmp_path):
     data_dir = tmp_path
     (data_dir / "mock_pois.json").write_text(
