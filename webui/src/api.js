@@ -49,3 +49,10 @@ export const streamChat = async (apiBase, payload, onEvent) => {
   }
 }
 
+export const fetchWeather = async (apiBase, lat, lng) => {
+  const base = apiBase || ''
+  const url = `${base}/weather/current?lat=${encodeURIComponent(String(lat))}&lng=${encodeURIComponent(String(lng))}`
+  const r = await fetch(url, { method: 'GET' })
+  if (!r.ok) throw new Error('weather_failed')
+  return r.json()
+}

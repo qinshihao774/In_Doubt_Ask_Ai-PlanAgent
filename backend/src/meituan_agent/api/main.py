@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import Query
 from pydantic import BaseModel, Field
 from starlette.responses import FileResponse, StreamingResponse
 from starlette.staticfiles import StaticFiles
@@ -79,6 +80,13 @@ def create_app() -> FastAPI:
     @app.get("/health")
     def health() -> dict[str, Any]:
         return {"ok": True}
+
+    @app.get("/weather/current", response_model=dict[str, Any])
+    def weather_current(lat: float = Query(...), lng: float = Query(...)) -> dict[str, Any]:
+        snap = container.weather_service.fetch(lat=lat, lng=lng)
+        if not snap:
+            raise HTTPException(status_code=502, detail="weather_unavailable")
+        return snap.as_dict()
 
     @app.post("/init", response_model=InitResponse)
     def init(req: InitRequest) -> InitResponse:

@@ -1,9 +1,10 @@
 import './style.css'
-import { health, initSession, streamChat } from './api'
+import { fetchWeather, health, initSession, streamChat } from './api'
 import { state, loadState, resetState } from './state'
 import { parsePlans, renderPlanCardsHtml } from './plans'
 import { renderPipeline } from './pipeline'
 import { getBrowserLocation, reverseGeocodeNominatim } from './location'
+import { initSmoke } from './smoke'
 
 const esc = (s) =>
   (s || '')
@@ -17,6 +18,7 @@ const mount = () => {
   const root = document.querySelector('#app')
   root.innerHTML = `
   <div class="bg">
+    <canvas id="smoke" class="smoke-layer"></canvas>
     <div class="aurora a1"></div>
     <div class="aurora a2"></div>
     <div class="noise"></div>
@@ -32,7 +34,6 @@ const mount = () => {
     <div class="loc-badge" id="loc-badge" style="display:none"></div>
   </div>
   <header class="hero">
-    <div class="hero-icon">🍜</div>
     <h1 class="hero-title">私人规划执行助理</h1>
     <div class="hero-subtitle">INTELLIGENT PLANNING · FLUID EXPERIENCE</div>
   </header>
@@ -156,10 +157,19 @@ const setLocationUi = () => {
     badge.style.display = 'none'
   } else {
     badge.style.display = 'flex'
-    badge.innerHTML = `<span class="loc-dot"></span><span class="loc-text" title="${esc(loc.label)}">${esc(loc.label)}</span>`
+    const w = state.weather
+    const wx =
+      w && (typeof w.temperature_c === 'number' || typeof w.precipitation_mm === 'number')
+        ? `<span class="loc-weather">${typeof w.temperature_c === 'number' ? `${Math.round(w.temperature_c)}°C` : ''}${typeof w.precipitation_mm === 'number' ? ` · ${w.precipitation_mm.toFixed(1)}mm` : ''}</span>`
+        : ''
+    badge.innerHTML = `<span class="loc-dot"></span><span class="loc-text" title="${esc(loc.label)}">${esc(loc.label)}</span>${wx}`
     const card = document.querySelector('#detected-loc-card')
     card.style.display = 'block'
-    card.innerHTML = `<div class="session-card__label">探测位置</div><div class="session-card__id">📌 ${esc(loc.label)}</div>`
+    const wline =
+      w && (typeof w.temperature_c === 'number' || typeof w.precipitation_mm === 'number' || typeof w.wind_kph === 'number')
+        ? `<div class="session-card__id">🌦️ ${typeof w.temperature_c === 'number' ? `${Math.round(w.temperature_c)}°C` : ''}${typeof w.precipitation_mm === 'number' ? ` · 降水${w.precipitation_mm.toFixed(1)}mm` : ''}${typeof w.wind_kph === 'number' ? ` · 风${Math.round(w.wind_kph)}km/h` : ''}</div>`
+        : ''
+    card.innerHTML = `<div class="session-card__label">探测位置</div><div class="session-card__id">📌 ${esc(loc.label)}</div>${wline}`
   }
 
   const showPerm = !state.locationPermissionDecided
@@ -298,6 +308,11 @@ const bind = () => {
       } catch {
         state.detectedLocation = loc
       }
+      try {
+        state.weather = await fetchWeather(state.apiBase, state.detectedLocation.lat, state.detectedLocation.lng)
+      } catch {
+        state.weather = null
+      }
       setLocationUi()
     } catch {
       state.locationPermission = 'denied'
@@ -309,6 +324,11 @@ const bind = () => {
     try {
       const loc = await getBrowserLocation()
       state.detectedLocation = loc
+      try {
+        state.weather = await fetchWeather(state.apiBase, state.detectedLocation.lat, state.detectedLocation.lng)
+      } catch {
+        state.weather = null
+      }
       setLocationUi()
     } catch {
       setLocationUi()
@@ -320,6 +340,7 @@ const boot = async () => {
   loadState()
   mount()
   bind()
+  initSmoke(document.querySelector('#smoke'), { hue: 140, scale: 0.62, fade: 0.07, curl: 2.4, size: 30, zoom: 1.016, speed: 0.95 })
   setLocationUi()
   renderMessages()
   setStatus('checking')

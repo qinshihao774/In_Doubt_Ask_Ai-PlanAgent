@@ -20,6 +20,7 @@ from meituan_agent.agents.semantic_agent import SemanticAgent
 from meituan_agent.domain.models import SemanticSchema, SessionState, SessionStatus
 from meituan_agent.llm.openai_compat import OpenAICompatClient
 from meituan_agent.planning.planner import Planner, PlanningInput
+from meituan_agent.services.weather_service import is_bad_outdoor
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +122,12 @@ class ManagerAgent:
         # 规划流水线: Map → Food → Leisure → Plan
         # ═══════════════════════════════════════════════════════════
         state = self._map.run(state, user_message)
+        if state.planning_context and is_bad_outdoor(state.scratch.get("weather")):
+            if state.planning_context.leisure.indoor_outdoor is None or state.planning_context.leisure.indoor_outdoor == "any":
+                state.planning_context.leisure.indoor_outdoor = "indoor"
+            msg = "当前天气不适合户外，优先选择室内活动"
+            if msg not in state.planning_context.hard_constraints:
+                state.planning_context.hard_constraints.append(msg)
         state = self._food.run(state, user_message)
         state = self._leisure.run(state, user_message)
         state = self._plan(state, excluded_poi_ids=set(), last_error=None)
@@ -219,6 +226,12 @@ class ManagerAgent:
         # ═══════════════════════════════════════════════════════════
         yield _emit("map", "running", "正在定位与搜索地图...")
         state = self._map.run(state, user_message)
+        if state.planning_context and is_bad_outdoor(state.scratch.get("weather")):
+            if state.planning_context.leisure.indoor_outdoor is None or state.planning_context.leisure.indoor_outdoor == "any":
+                state.planning_context.leisure.indoor_outdoor = "indoor"
+            msg = "当前天气不适合户外，优先选择室内活动"
+            if msg not in state.planning_context.hard_constraints:
+                state.planning_context.hard_constraints.append(msg)
         yield _emit("map", "done", "位置与周边搜索完成")
 
         yield _emit("food", "running", "正在为您寻找美食...")
@@ -381,6 +394,20 @@ def _format_plan_message(state: SessionState, llm: OpenAICompatClient | None = N
     lines = []
     if state.location:
         lines.append(f"已根据你的当前位置检索：{state.location.label or f'{state.location.lat},{state.location.lng}'}")
+    weather = state.scratch.get("weather") or {}
+    if weather:
+        temp = weather.get("temperature_c")
+        pr = weather.get("precipitation_mm")
+        wind = weather.get("wind_kph")
+        parts = []
+        if isinstance(temp, (int, float)):
+            parts.append(f"{temp:.0f}°C")
+        if isinstance(pr, (int, float)):
+            parts.append(f"降水{pr:.1f}mm")
+        if isinstance(wind, (int, float)):
+            parts.append(f"风速{wind:.0f}km/h")
+        if parts:
+            lines.append(f"实时天气：{' / '.join(parts)}")
     lines.append("我为你生成了以下方案，请回复：确认 方案1 / 确认 方案2 开始执行。")
     for idx, plan in enumerate(state.candidate_plans, start=1):
         lines.append("")

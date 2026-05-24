@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from meituan_agent.agents.base import Agent
 from meituan_agent.domain.models import POI, SemanticSchema, SessionState
+from meituan_agent.services.weather_service import is_bad_outdoor
 from meituan_agent.tools.base import POISearchTool
 
 
@@ -19,11 +20,14 @@ class LeisureAgent(Agent):
     def run(self, state: SessionState, _user_message: str) -> SessionState:
         schema: SemanticSchema | None = state.planning_context
         leisure = schema.leisure if schema else None
+        weather = state.scratch.get("weather")
 
         # 从语义分析结果中提取搜索标签（全部可空，动态推理）
         search_tags: list[str] = []
         if leisure and leisure.activity_types:
             search_tags = list(leisure.activity_types)
+        elif is_bad_outdoor(weather):
+            search_tags = ["展览", "博物馆", "咖啡", "商场"]
         elif schema and schema.party and schema.party.has_child:
             search_tags = ["亲子", "展览"]
         else:

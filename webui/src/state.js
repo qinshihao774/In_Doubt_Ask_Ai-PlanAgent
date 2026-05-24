@@ -10,6 +10,7 @@ export const state = {
   locationPermissionDecided: false,
   locationPermission: 'unknown',
   detectedLocation: null,
+  weather: null,
   activePlanIndex: 0,
 }
 
@@ -28,6 +29,6 @@ export const resetState = () => {
   state.pipelineConfig = []
   state.pipelineStates = {}
   state.detectedLocation = null
+  state.weather = null
   state.activePlanIndex = 0
 }
-
