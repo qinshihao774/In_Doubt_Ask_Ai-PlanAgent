@@ -167,46 +167,6 @@ MEITUAN_AGENT_OPENAI_MODEL=deepseek-v4-flash
 
 所有 API Key / Token 等敏感信息必须仅存在于 `.env`（或更严格的 secrets 管理系统）中，禁止硬编码。
 
-
-### 下面给你一套 在 Windows + PowerShell 下最稳的启动步骤（全程显式使用这个 venv 的 python，避免用错解释器）。
-
-方式 A：只启动后端，用后端直接提供 Web UI（推荐验收用）
-
-1. 打开 PowerShell，进入项目根目录：
-```
-cd e:\PythonProject\Private_planning_agent
-```
-2. 安装/更新后端依赖（安装到你的 .venv 里）：
-```
-e:\PythonProject\Private_planning_agent\meituan_competition_agent\.venv\Scripts\python.exe -m pip install -r meituan_competition_agent\backend\requirements.txt
-```
-3. 构建 WebUI（这是 Node 依赖，不会装进 .venv ）：
-```
-cd e:\PythonProject\Private_planning_agent\meituan_competition_agent\webui
-npm install
-npm run build
-```
-4. 启动后端（用你的 .venv python 启动）：
-```
-cd e:\PythonProject\Private_planning_agent
-e:\PythonProject\Private_planning_agent\meituan_competition_agent\.venv\Scripts\python.exe meituan_competition_agent\backend\run_api.py
-```
-5. 浏览器打开：
-- http://127.0.0.1:8000/ui
-方式 B：前后端分开启动（用于前端调试/HMR）
-
-- 终端 1（后端）：
-```
-cd e:\PythonProject\Private_planning_agent
-e:\PythonProject\Private_planning_agent\meituan_competition_agent\.venv\Scripts\python.exe meituan_competition_agent\backend\run_api.py
-```
-- 终端 2（前端 dev server）：
-```
-cd 
-cd e:\PythonProject\Private_planning_agent\meituan_competition_agent\webui
-npm install
-npm run dev
-```
 依赖是否安装在虚拟环境中？
 
 - pip install ... ：会安装到你这个 .venv （只要你像上面那样用 .venv\Scripts\python.exe -m pip ... 或先激活 venv）。
