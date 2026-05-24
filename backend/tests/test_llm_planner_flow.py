@@ -65,7 +65,7 @@ def _build_service(tmp_path):
     memory = InMemoryStore()
     return SessionService(memory, manager)
 
-
+# 测试期望：确认方案后，执行因排队超时失败，触发自动重规划
 def test_llm_structured_planning_and_replan(tmp_path):
     svc = _build_service(tmp_path)
     state, reply = svc.chat(session_id=None, message="下午2点出发，带5岁娃，老婆减脂，帮我规划4-6小时")
