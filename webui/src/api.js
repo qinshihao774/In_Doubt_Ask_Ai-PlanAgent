@@ -38,6 +38,26 @@ export const fetchSessions = async (apiBase, limit = 30, offset = 0) => {
   return r.json()
 }
 
+export const deleteSession = async (apiBase, sessionId) => {
+  const base = apiBase || ''
+  const url = `${base}/sessions/${encodeURIComponent(sessionId)}`
+  const r = await fetch(url, { method: 'DELETE' })
+  if (!r.ok) throw new Error('delete_failed')
+  return r.json()
+}
+
+export const setPinned = async (apiBase, sessionId, pinned) => {
+  const base = apiBase || ''
+  const url = `${base}/sessions/${encodeURIComponent(sessionId)}/pin`
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pinned: !!pinned }),
+  })
+  if (!r.ok) throw new Error('pin_failed')
+  return r.json()
+}
+
 export const streamChat = async (apiBase, payload, onEvent) => {
   const r = await fetch(`${apiBase}/chat/stream`, {
     method: 'POST',

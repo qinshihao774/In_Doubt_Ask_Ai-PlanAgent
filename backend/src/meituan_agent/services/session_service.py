@@ -18,9 +18,7 @@ class SessionService:
         existing = self._memory.get_state(sid)
         if existing:
             return existing
-        state = SessionState(session_id=sid, status=SessionStatus.planning)
-        self._memory.put_state(state)
-        return state
+        return SessionState(session_id=sid, status=SessionStatus.planning)
 
     def set_bootstrap_location(self, session_id: str, location: Location | None) -> SessionState:
         state = self.ensure_session(session_id)
@@ -66,4 +64,10 @@ class SessionService:
 
     def list_sessions(self, limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
         return self._memory.list_sessions(limit=limit, offset=offset)
+
+    def delete_session(self, session_id: str) -> bool:
+        return self._memory.delete_session(session_id)
+
+    def set_pinned(self, session_id: str, *, pinned: bool) -> bool:
+        return self._memory.set_pinned(session_id, pinned)
 

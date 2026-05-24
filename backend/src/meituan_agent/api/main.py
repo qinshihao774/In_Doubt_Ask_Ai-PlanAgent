@@ -44,6 +44,9 @@ class InitResponse(BaseModel):
     session_id: str
     state: dict[str, Any]
 
+class PinRequest(BaseModel):
+    pinned: bool = True
+
 
 def create_app() -> FastAPI:
     container = Container()
@@ -157,6 +160,20 @@ def create_app() -> FastAPI:
     @app.get("/sessions", response_model=list[dict[str, Any]])
     def list_sessions(limit: int = 30, offset: int = 0) -> list[dict[str, Any]]:
         return svc.list_sessions(limit=limit, offset=offset)
+
+    @app.delete("/sessions/{session_id}", response_model=dict[str, Any])
+    def delete_session(session_id: str) -> dict[str, Any]:
+        ok = svc.delete_session(session_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="session_not_found")
+        return {"ok": True}
+
+    @app.post("/sessions/{session_id}/pin", response_model=dict[str, Any])
+    def pin_session(session_id: str, req: PinRequest) -> dict[str, Any]:
+        ok = svc.set_pinned(session_id, pinned=bool(req.pinned))
+        if not ok:
+            raise HTTPException(status_code=404, detail="session_not_found")
+        return {"ok": True, "pinned": bool(req.pinned)}
 
     @app.post("/asr/transcribe", response_model=dict[str, Any])
     async def asr_transcribe(file: UploadFile = File(...), language: str | None = None) -> dict[str, Any]:

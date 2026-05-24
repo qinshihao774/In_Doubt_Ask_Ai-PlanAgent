@@ -22,3 +22,9 @@ class MemoryStore(ABC):
     @abstractmethod
     def list_sessions(self, limit: int = 50, offset: int = 0) -> list[dict[str, Any]]: ...
 
+    @abstractmethod
+    def delete_session(self, session_id: str) -> bool: ...
+
+    @abstractmethod
+    def set_pinned(self, session_id: str, pinned: bool) -> bool: ...
+

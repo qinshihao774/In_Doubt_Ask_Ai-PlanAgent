@@ -1,5 +1,5 @@
 import './style.css'
-import { fetchMessages, fetchSessions, fetchState, fetchWeather, health, initSession, streamChat } from './api'
+import { deleteSession, fetchMessages, fetchSessions, fetchState, fetchWeather, health, initSession, setPinned, streamChat } from './api'
 import { state, loadState, resetState } from './state'
 import { parsePlans, renderPlanCardsHtml } from './plans'
 import { renderPipeline } from './pipeline'
@@ -23,6 +23,10 @@ const mount = () => {
   </div>
   <div class="top-right">
     <div class="geo-actions">
+      <div class="status-badge status-badge--mini" id="status-badge">
+        <span class="status-dot"></span>
+        <span class="status-text">连接检测中</span>
+      </div>
       <button class="btn btn--primary geo-btn" id="geo-allow">启用定位</button>
       <button class="btn btn--ghost geo-btn" id="geo-skip">跳过</button>
       <button class="btn btn--icon geo-icon" id="geo-refresh" title="刷新定位" aria-label="刷新定位">
@@ -37,10 +41,7 @@ const mount = () => {
   </header>
   <main class="layout">
     <aside class="sidebar">
-      <div class="status-badge" id="status-badge">
-        <span class="status-dot"></span>
-        <span class="status-text">连接检测中</span>
-      </div>
+      <button class="btn btn--ghost btn--block" id="new-session">新建对话</button>
       <div class="divider"></div>
       <div class="session-card">
         <div class="session-card__label">当前会话</div>
@@ -52,7 +53,6 @@ const mount = () => {
         <div class="session-card__label">历史对话</div>
         <div class="session-list" id="session-list"></div>
       </div>
-      <button class="btn btn--ghost btn--block" id="new-session">新建对话</button>
     </aside>
     <section class="chat">
       <div class="messages" id="messages"></div>
@@ -172,7 +172,7 @@ const setLocationUi = () => {
       w && (typeof w.temperature_c === 'number' || typeof w.precipitation_mm === 'number' || typeof w.wind_kph === 'number')
         ? `<div class="session-card__id">🌦️ ${typeof w.temperature_c === 'number' ? `${Math.round(w.temperature_c)}°C` : ''}${typeof w.precipitation_mm === 'number' ? ` · 降水${w.precipitation_mm.toFixed(1)}mm` : ''}${typeof w.wind_kph === 'number' ? ` · 风${Math.round(w.wind_kph)}km/h` : ''}</div>`
         : ''
-    card.innerHTML = `<div class="session-card__label">探测位置</div><div class="session-card__id">📌 ${esc(loc.label)}</div>${wline}`
+    card.innerHTML = `<div class="session-card__label">位置定位</div><div class="session-card__id">📍 ${esc(loc.label)}</div>${wline}`
   }
 
   const showPerm = !state.locationPermissionDecided
@@ -185,6 +185,8 @@ const showProcessing = (on) => {
   document.querySelector('#processing').style.display = on ? 'block' : 'none'
 }
 
+let openMenuSid = null
+
 const renderSessionList = () => {
   const box = document.querySelector('#session-list')
   const items = state.sessions || []
@@ -196,20 +198,91 @@ const renderSessionList = () => {
     .map((s) => {
       const sid = s.session_id
       const active = sid === state.sessionId
+      const pinned = Number(s.pinned || 0) === 1
       const raw = (s.last_content || '').trim()
       const preview = raw ? esc(raw).slice(0, 26) : '（空会话）'
-      return `<button class="session-item ${active ? 'session-item--on' : ''}" data-sid="${esc(sid)}" type="button">
-        <div class="session-item__id">${esc(sid)}</div>
+      const menuOpen = openMenuSid === sid
+      return `<div class="session-item ${active ? 'session-item--on' : ''}" data-sid="${esc(sid)}" role="button" tabindex="0">
+        <div class="session-item__top">
+          <div class="session-item__id">${pinned ? '📌 ' : ''}${esc(sid)}</div>
+          <button class="session-more" data-more="${esc(sid)}" type="button" aria-label="更多">⋯</button>
+        </div>
         <div class="session-item__preview">${preview}</div>
-      </button>`
+        <div class="session-menu ${menuOpen ? 'session-menu--on' : ''}" data-menu="${esc(sid)}">
+          <button class="session-menu__item" data-act="pin" data-sid="${esc(sid)}" type="button">
+            <span class="session-menu__icon">📌</span>
+            <span>${pinned ? '取消固定' : '固定置顶'}</span>
+          </button>
+          <button class="session-menu__item session-menu__item--danger" data-act="del" data-sid="${esc(sid)}" type="button">
+            <span class="session-menu__icon">🗑️</span>
+            <span>删除对话</span>
+          </button>
+        </div>
+      </div>`
     })
     .join('')
 
-  box.querySelectorAll('[data-sid]').forEach((el) => {
+  box.querySelectorAll('.session-item[data-sid]').forEach((el) => {
     el.addEventListener('click', async () => {
       const sid = el.getAttribute('data-sid')
       if (!sid || sid === state.sessionId || state.isProcessing) return
       await loadSession(sid)
+    })
+    el.addEventListener('keydown', async (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return
+      e.preventDefault()
+      const sid = el.getAttribute('data-sid')
+      if (!sid || sid === state.sessionId || state.isProcessing) return
+      await loadSession(sid)
+    })
+  })
+
+  box.querySelectorAll('[data-more]').forEach((el) => {
+    el.addEventListener('click', (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+      const sid = el.getAttribute('data-more')
+      openMenuSid = openMenuSid === sid ? null : sid
+      renderSessionList()
+    })
+  })
+
+  box.querySelectorAll('[data-act]').forEach((el) => {
+    el.addEventListener('click', async (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+      const sid = el.getAttribute('data-sid')
+      const act = el.getAttribute('data-act')
+      if (!sid || !act) return
+      if (act === 'del') {
+        try {
+          await deleteSession(state.apiBase, sid)
+        } catch {}
+        openMenuSid = null
+        await refreshSessions()
+        if (sid === state.sessionId) {
+          const next = (state.sessions || []).find((x) => x.session_id !== sid)
+          if (next) await loadSession(next.session_id)
+          else {
+            resetState()
+            document.querySelector('#session-id').textContent = state.sessionId
+            state.messages = []
+            renderMessages()
+            setLocationUi()
+            await refreshSessions()
+          }
+        }
+        return
+      }
+      if (act === 'pin') {
+        const cur = (state.sessions || []).find((x) => x.session_id === sid)
+        const pinned = !(cur && Number(cur.pinned || 0) === 1)
+        try {
+          await setPinned(state.apiBase, sid, pinned)
+        } catch {}
+        openMenuSid = null
+        await refreshSessions()
+      }
     })
   })
 }
@@ -224,6 +297,7 @@ const refreshSessions = async () => {
 }
 
 const loadSession = async (sid) => {
+  openMenuSid = null
   state.sessionId = sid
   localStorage.setItem('meituan_session_id', state.sessionId)
   document.querySelector('#session-id').textContent = state.sessionId
@@ -340,6 +414,12 @@ const sendMessage = async (text) => {
 const bind = () => {
   document.querySelector('#session-id').textContent = state.sessionId
 
+  document.addEventListener('click', () => {
+    if (!openMenuSid) return
+    openMenuSid = null
+    renderSessionList()
+  })
+
   document.querySelector('#composer').addEventListener('submit', (e) => {
     e.preventDefault()
     const input = document.querySelector('#prompt')
@@ -349,15 +429,13 @@ const bind = () => {
   })
 
   document.querySelector('#new-session').addEventListener('click', async () => {
+    if (state.isProcessing) return
+    if (!state.messages.length) return
     resetState()
     document.querySelector('#session-id').textContent = state.sessionId
     state.messages = []
     renderMessages()
-    try {
-      await initSession(state.apiBase, state.sessionId)
-    } catch {
-      setStatus('offline')
-    }
+    setLocationUi()
     await refreshSessions()
   })
 
@@ -417,7 +495,17 @@ const boot = async () => {
   try {
     await health(state.apiBase)
     setStatus('online')
-    await loadSession(state.sessionId)
+    await refreshSessions()
+    const exist = (state.sessions || []).some((x) => x.session_id === state.sessionId)
+    if (exist) {
+      await loadSession(state.sessionId)
+    } else {
+      document.querySelector('#session-id').textContent = state.sessionId
+      state.messages = []
+      renderMessages()
+      setLocationUi()
+      renderSessionList()
+    }
   } catch {
     setStatus('offline')
   }
