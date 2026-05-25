@@ -10,7 +10,14 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi import Query
 from pydantic import BaseModel, Field
 from starlette.responses import FileResponse, StreamingResponse
+import mimetypes
+
+# 修复 Windows mimetypes 数据库缺失：.js 默认返回 text/plain，导致 ES module 被浏览器拒绝
+mimetypes.add_type("application/javascript", ".js")
+mimetypes.add_type("text/css", ".css")
+
 from starlette.staticfiles import StaticFiles
+
 
 from meituan_agent.agents.manager_agent import PIPELINE_STAGES
 from meituan_agent.asr.qwen_asr import QwenASRClient
