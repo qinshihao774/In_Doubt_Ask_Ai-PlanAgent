@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import httpx
 import logging
+import time
 from typing import Any
 
 from meituan_agent.domain.models import Location, POI, RouteLeg
@@ -21,8 +22,11 @@ class AmapTools(POISearchTool, MapTool):
 
     BASE_URL = "https://restapi.amap.com/v3"
 
+    _MIN_INTERVAL = 0.25  # 请求最小间隔（秒），避免高德限频
+
     def __init__(self, api_key: str) -> None:
         self.api_key = api_key
+        self._last_call = 0.0
         # 高德 API 分类编码映射（覆盖餐饮、休闲、亲子、购物等主要场景）
         self.category_map = {
             # ===== 餐饮 =====
@@ -51,7 +55,14 @@ class AmapTools(POISearchTool, MapTool):
             "景点": "110000", "风景名胜": "110000", "风景": "110000",
             "旅游": "110000", "观光": "110000",
         }
-    
+
+    def _throttle(self) -> None:
+        """限流：确保两次请求之间至少间隔 _MIN_INTERVAL 秒。"""
+        elapsed = time.monotonic() - self._last_call
+        if elapsed < self._MIN_INTERVAL:
+            time.sleep(self._MIN_INTERVAL - elapsed)
+        self._last_call = time.monotonic()
+
     def reverse_geocode(self, lat: float, lng: float) -> str:
         params = {
             "key": self.api_key,
@@ -59,6 +70,7 @@ class AmapTools(POISearchTool, MapTool):
         }
         try:
             import httpx
+            self._throttle()
             with httpx.Client(timeout=10) as client:
                 r = client.get(f"{self.BASE_URL}/geocode/regeo", params=params)
                 r.raise_for_status()
@@ -80,6 +92,7 @@ class AmapTools(POISearchTool, MapTool):
         if city:
             params["city"] = city
         try:
+            self._throttle()
             with httpx.Client(timeout=10) as client:
                 r = client.get(f"{self.BASE_URL}/geocode/geo", params=params)
                 r.raise_for_status()
@@ -103,6 +116,7 @@ class AmapTools(POISearchTool, MapTool):
         """IP 粗略定位"""
         params = {"key": self.api_key}
         try:
+            self._throttle()
             with httpx.Client(timeout=10) as client:
                 r = client.get(f"{self.BASE_URL}/ip", params=params)
                 r.raise_for_status()
@@ -161,7 +175,8 @@ class AmapTools(POISearchTool, MapTool):
                 pass
         else:
             params["types"] = "050000|080000|110000"  # 默认搜餐饮、休闲、景点
-            
+
+        self._throttle()
         try:
             with httpx.Client(timeout=10) as client:
                 r = client.get(f"{self.BASE_URL}/place/around", params=params)
@@ -271,8 +286,9 @@ class AmapTools(POISearchTool, MapTool):
         
         # 公交规划需要城市参数，默认北京
         if mode == "transit":
-            params["city"] = "010" 
-            
+            params["city"] = "010"
+
+        self._throttle()
         try:
             with httpx.Client(timeout=10) as client:
                 r = client.get(f"{self.BASE_URL}{endpoint}", params=params)
