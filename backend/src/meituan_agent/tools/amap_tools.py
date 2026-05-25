@@ -184,7 +184,7 @@ class AmapTools(POISearchTool, MapTool):
                 lng_str, lat_str = loc_str.split(",")
                 
                 # 尝试解析评分和人均消费（高德 API 的 biz_ext 字段中有时会包含）
-                rating = None
+                rating = 0.0
                 price = None
                 biz_ext = item.get("biz_ext", {})
                 if isinstance(biz_ext, dict):

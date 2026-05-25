@@ -156,3 +156,7 @@ class Container:
             planner=planner,
             llm=llm,
         )
+
+        # ===== 计时切面织入 =====
+        from meituan_agent.timing_aspect import install_timing_aspect
+        install_timing_aspect(self)
