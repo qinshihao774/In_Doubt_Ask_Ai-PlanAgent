@@ -21,6 +21,7 @@ from meituan_agent.domain.models import SemanticSchema, SessionState, SessionSta
 from meituan_agent.llm.openai_compat import OpenAICompatClient
 from meituan_agent.planning.planner import Planner, PlanningInput
 from meituan_agent.services.weather_service import is_bad_outdoor
+from meituan_agent.timing_aspect import TimerRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -55,9 +56,18 @@ class ManagerAgent:
         self._llm = llm
         self._planner = planner
 
+    @staticmethod
+    def _last_stage_ms() -> float:
+        """从切面注册表中读取最近一条计时记录的耗时。"""
+        records = TimerRegistry.get_records()
+        return records[-1]["elapsed_ms"] if records else 0.0
+
     def step(self, state: SessionState, user_message: str, *, use_llm: bool = True) -> tuple[SessionState, str]:
+        TimerRegistry.reset()
+
         # ═══════════════════════════════════════════════════════════
         # 阶段 0: 深度语义分析 — 一次 LLM 调用完成全部理解
+        # (计时由切面自动完成，通过 TimerRegistry 读取)
         # ═══════════════════════════════════════════════════════════
         if self._semantic is not None:
             loc_label = state.location.label if state.location else "未知"
@@ -66,7 +76,6 @@ class ManagerAgent:
             schema = SemanticSchema()
             # 补充：无 LLM 时用关键词判断确认意图
             if _is_confirmation(user_message) and state.candidate_plans:
-                # SemanticSchema() 的 intent 的默认值为 "planning"，手动改为 confirmation
                 schema.intent = "confirmation"
         state.planning_context = schema
         # 同步到旧 profile（兼容 planner 中仍使用 profile 的代码）
@@ -122,6 +131,7 @@ class ManagerAgent:
             except Exception:
                 pass
 
+            logger.info(TimerRegistry.summary())
             return state, _format_execution_summary(state)
 
         # ═══════════════════════════════════════════════════════════
@@ -134,12 +144,17 @@ class ManagerAgent:
             msg = "当前天气不适合户外，优先选择室内活动"
             if msg not in state.planning_context.hard_constraints:
                 state.planning_context.hard_constraints.append(msg)
+
         state = self._food.run(state, user_message)
+
         state = self._leisure.run(state, user_message)
+
         state = self._plan(state, excluded_poi_ids=set(), last_error=None)
 
         # 去重：不同方案的 POI 集合不能相同（即使顺序不同）
         state = self._dedup_plans(state)
+
+        logger.info("[timer] total: %.1fms", TimerRegistry.total_ms())
 
         if not state.candidate_plans:
             state.status = SessionStatus.awaiting_confirmation
@@ -154,13 +169,18 @@ class ManagerAgent:
 
         与 step() 逻辑完全一致，但每个 agent 阶段前后 yield 进度事件，
         供前端渲染点线流程可视化。
+        计时由切面（timing_aspect）自动完成，此处仅从 TimerRegistry 读取。
         """
+        TimerRegistry.reset()
 
-        def _emit(stage_id: str, status: str, msg: str | None = None) -> dict[str, Any]:
-            return {"type": "pipeline_stage", "stage_id": stage_id, "status": status, "msg": msg}
+        def _emit(stage_id: str, status: str, msg: str | None = None, elapsed_ms: float | None = None) -> dict[str, Any]:
+            ev: dict[str, Any] = {"type": "pipeline_stage", "stage_id": stage_id, "status": status, "msg": msg}
+            if elapsed_ms is not None:
+                ev["elapsed_ms"] = elapsed_ms
+            return ev
 
         # ═══════════════════════════════════════════════════════════
-        # 阶段 0: 深度语义分析
+        # 阶段 0: 深度语义分析 (计时由切面自动完成)
         # ═══════════════════════════════════════════════════════════
         yield _emit("semantic", "running", "正在理解需求...")
         if self._semantic is not None:
@@ -168,7 +188,6 @@ class ManagerAgent:
             schema = self._semantic.analyze(user_message, location_label=loc_label)
         else:
             schema = SemanticSchema()
-            # 改动同 step() 下的一样
             if _is_confirmation(user_message) and state.candidate_plans:
                 schema.intent = "confirmation"
         state.planning_context = schema
@@ -182,7 +201,7 @@ class ManagerAgent:
         state.profile.style = _map_style(schema)
         if schema.food.budget_per_person:
             state.profile.budget_level = _budget_to_level(schema.food.budget_per_person)
-        yield _emit("semantic", "done", "需求理解完成")
+        yield _emit("semantic", "done", "需求理解完成", elapsed_ms=self._last_stage_ms())
 
         # ═══════════════════════════════════════════════════════════
         # 意图路由
@@ -206,7 +225,7 @@ class ManagerAgent:
 
             yield _emit("execution", "running", "正在执行方案...")
             state = self._exec.execute_plan(state)
-            yield _emit("execution", "done", "执行完成" if not state.last_error else "执行遇到问题")
+            yield _emit("execution", "done", "执行完成" if not state.last_error else "执行遇到问题", elapsed_ms=self._last_stage_ms())
 
             if state.last_error:
                 yield _emit("plan", "running", "正在重新规划...")
@@ -230,10 +249,11 @@ class ManagerAgent:
             except Exception:
                 pass
 
+            logger.info(TimerRegistry.summary())
             return state, _format_execution_summary(state)
 
         # ═══════════════════════════════════════════════════════════
-        # 规划流水线: Map → Food → Leisure → Plan
+        # 规划流水线: Map → Food → Leisure → Plan (计时由切面自动完成)
         # ═══════════════════════════════════════════════════════════
         yield _emit("map", "running", "正在定位与搜索地图...")
         state = self._map.run(state, user_message)
@@ -243,21 +263,23 @@ class ManagerAgent:
             msg = "当前天气不适合户外，优先选择室内活动"
             if msg not in state.planning_context.hard_constraints:
                 state.planning_context.hard_constraints.append(msg)
-        yield _emit("map", "done", "位置与周边搜索完成")
+        yield _emit("map", "done", "位置与周边搜索完成", elapsed_ms=self._last_stage_ms())
 
         yield _emit("food", "running", "正在为您寻找美食...")
         state = self._food.run(state, user_message)
-        yield _emit("food", "done", "美食搜索完成")
+        yield _emit("food", "done", "美食搜索完成", elapsed_ms=self._last_stage_ms())
 
         yield _emit("leisure", "running", "正在搜索休闲好去处...")
         state = self._leisure.run(state, user_message)
-        yield _emit("leisure", "done", "休闲探索完成")
+        yield _emit("leisure", "done", "休闲探索完成", elapsed_ms=self._last_stage_ms())
 
         yield _emit("plan", "running", "正在生成行程方案...")
         state = self._plan(state, excluded_poi_ids=set(), last_error=None)
         yield _emit("plan", "done", "方案生成完毕")
 
         state = self._dedup_plans(state)
+
+        logger.info("[timer] total: %.1fms", TimerRegistry.total_ms())
 
         if not state.candidate_plans:
             state.status = SessionStatus.awaiting_confirmation
