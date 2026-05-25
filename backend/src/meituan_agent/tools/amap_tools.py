@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import httpx
 import logging
+import ssl
 import time
 from typing import Any
 
@@ -290,10 +291,23 @@ class AmapTools(POISearchTool, MapTool):
 
         self._throttle()
         try:
-            with httpx.Client(timeout=10) as client:
-                r = client.get(f"{self.BASE_URL}{endpoint}", params=params)
-                r.raise_for_status()
-                data = r.json()
+            data = None
+            last_err: Exception | None = None
+            for attempt in range(3):
+                try:
+                    with httpx.Client(timeout=httpx.Timeout(15.0, connect=8.0)) as client:
+                        r = client.get(f"{self.BASE_URL}{endpoint}", params=params)
+                        r.raise_for_status()
+                        data = r.json()
+                    break
+                except (httpx.TimeoutException, httpx.TransportError, ssl.SSLError, TimeoutError) as e:
+                    last_err = e
+                    if attempt < 2:
+                        time.sleep(0.25 * (attempt + 1))
+                        continue
+                    raise
+            if data is None:
+                raise last_err or RuntimeError("amap_route_unknown_error")
                 
             if data.get("status") != "1" or not data.get("route"):
                 logger.warning(f"高德路径规划失败: {data}")
@@ -323,6 +337,9 @@ class AmapTools(POISearchTool, MapTool):
                 minutes=max(1, duration_s // 60)
             )
             
+        except (httpx.TimeoutException, httpx.TransportError, ssl.SSLError, TimeoutError) as e:
+            logger.warning(f"调用高德地图路径规划 API 网络抖动: {e}")
+            return self._fallback_route(origin, dest, mode)
         except Exception as e:
             logger.error(f"调用高德地图路径规划 API 出错: {e}")
             return self._fallback_route(origin, dest, mode)
