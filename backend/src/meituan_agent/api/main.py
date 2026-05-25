@@ -16,6 +16,7 @@ from meituan_agent.agents.manager_agent import PIPELINE_STAGES
 from meituan_agent.asr.qwen_asr import QwenASRClient
 from meituan_agent.container import Container
 from meituan_agent.domain.models import ChatMessage, Location, SessionState
+from meituan_agent.location_parser import extract_location_hint
 from meituan_agent.services.session_service import SessionService
 
 
@@ -108,9 +109,13 @@ def create_app() -> FastAPI:
     @app.post("/chat/stream")
     async def chat_stream(req: ChatRequest):
         state = svc.ensure_session(req.session_id)
+        hint = extract_location_hint(req.message)
+        if hint:
+            state.scratch["location_hint"] = hint
         if req.user_location and not state.scratch.get("location_hint"):
             state.location = req.user_location
             state.scratch["bootstrap_location"] = req.user_location.model_dump()
+            state.scratch["location_source"] = "bootstrap"
         svc._memory.append_message(state.session_id, ChatMessage(role="user", content=req.message))
 
         async def event_gen():

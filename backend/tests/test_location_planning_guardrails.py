@@ -66,6 +66,11 @@ class BootstrapAwareMap:
     def ip_location(self) -> Location | None:
         return Location(lat=31.23, lng=121.47, label="上海")
 
+    def geocode(self, hint: str, city: str | None = None) -> Location | None:
+        if "北京" in hint:
+            return Location(lat=39.92, lng=116.46, label="北京·朝阳")
+        return None
+
     def search_poi(self, *, tag, location, radius_km=3.0):
         return []
 
@@ -81,3 +86,17 @@ def test_map_agent_prefers_bootstrap_location_when_user_did_not_say_place():
     new_state = MapAgent(BootstrapAwareMap()).run(state, "帮我安排下午吃饭和娱乐")
     assert new_state.location is not None
     assert new_state.location.label == "四川省成都市新津区"
+
+
+def test_map_agent_prefers_user_message_location_over_bootstrap_location():
+    state = SessionState(
+        session_id="s3",
+        location=Location(lat=31.23, lng=121.47, label="上海"),
+        scratch={
+            "bootstrap_location": Location(lat=31.23, lng=121.47, label="上海").model_dump(),
+            "location_source": "bootstrap",
+        },
+    )
+    new_state = MapAgent(BootstrapAwareMap()).run(state, "我现在在北京朝阳，帮我安排下午吃饭和娱乐")
+    assert new_state.location is not None
+    assert new_state.location.label == "北京·朝阳"
