@@ -202,7 +202,7 @@ const renderSessionList = () => {
       const raw = (s.last_content || '').trim()
       const preview = raw ? esc(raw).slice(0, 26) : '（空会话）'
       const menuOpen = openMenuSid === sid
-      return `<div class="session-item ${active ? 'session-item--on' : ''}" data-sid="${esc(sid)}" role="button" tabindex="0">
+      return `<div class="session-item ${active ? 'session-item--on' : ''} ${menuOpen ? 'session-item--menu-open' : ''}" data-sid="${esc(sid)}" role="button" tabindex="0">
         <div class="session-item__top">
           <div class="session-item__id">${pinned ? '📌 ' : ''}${esc(sid)}</div>
           <button class="session-more" data-more="${esc(sid)}" type="button" aria-label="更多">⋯</button>
