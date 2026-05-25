@@ -14,6 +14,7 @@ from meituan_agent.config import load_settings
 from meituan_agent.llm.openai_compat import OpenAICompatClient
 from meituan_agent.memory.factory import build_memory_store
 from meituan_agent.planning.planner import FallbackPlanner, HeuristicPlanner, LLMPlanner
+from meituan_agent.services.weather_service import WeatherService
 from meituan_agent.tools.amap_tools import AmapTools
 from meituan_agent.tools.base import RPAExecutor, AvailabilityTool, MenuInfoTool, OrderTool
 from meituan_agent.tools.mock_map import MockMapTool
@@ -125,11 +126,13 @@ class Container:
             )
         self.llm = llm
 
+        self.weather_service = WeatherService()
+
         # ===== Agent 初始化 =====
         self.semantic_agent = SemanticAgent(llm) if llm else None
         self.food_agent = FoodAgent(self.meituan)
         self.leisure_agent = LeisureAgent(self.meituan)
-        self.map_agent = MapAgent(self.map_tool)
+        self.map_agent = MapAgent(self.map_tool, weather=self.weather_service)
         self.execution_agent = ExecutionAgent(
             availability=self.availability_tool,
             menu=self.menu_tool,

@@ -42,7 +42,7 @@ CMD：
 
 ```powershell
 .\.venv\Scripts\python -m pip install --upgrade pip
-.\.venv\Scripts\python -m pip install -r backend\requirements.txt -r ui\requirements.txt --no-cache-dir
+.\.venv\Scripts\python -m pip install -r backend\requirements.txt --no-cache-dir
 ```
 
 ### 5) 配置环境变量
@@ -81,14 +81,21 @@ cd backend
 # 输出: {"ok": true}
 ```
 
-### 7) 启动前端（Streamlit）
+### 7) 构建并访问前端（Web UI）
 
-新开一个终端：
+前端使用 JavaScript/HTML/CSS（Vite 构建），不依赖 Streamlit。
+
+先构建静态资源：
 
 ```powershell
-cd e:\PythonProject\Private_planning_agent\meituan_competition_agent
-.\.venv\Scripts\python -m streamlit run ui\streamlit_app.py
+cd e:\PythonProject\Private_planning_agent\meituan_competition_agent\webui
+npm install
+npm run build
 ```
+
+然后启动后端并访问（后端会自动提供静态页面）：
+
+- http://127.0.0.1:8000/ui
 
 ### 8) 运行测试
 
@@ -122,13 +129,13 @@ cd e:\PythonProject\Private_planning_agent\meituan_competition_agent\backend
 
 ## 前端交互
 
-基于 Streamlit 的 Inspire UI 流体设计：
+Web UI（JavaScript/HTML/CSS）特性：
 
-- **自动定位**：浏览器 GPS → IP 定位 → 兜底坐标三级获取用户位置
-- **打字机输出**：SSE 流式接收后端响应，逐字呈现
-- **3D 方案卡片**：多候选方案叠层展示，点击圆点切换，一键"就选它！"确认
-- **思考动画**：骨架屏 → 思考指示器 → 进度条 → 长等待提示的完整加载体验
-- **会话管理**：侧栏显示会话 ID 和探测位置，支持重置
+- **自动定位**：浏览器定位授权 → 获取经纬度 → 右上角位置徽标展示
+- **打字机输出**：SSE 流式接收后端响应，逐步呈现
+- **方案卡片**：多候选方案可视化展示（支持左右切换 + 一键"就选它！"确认）
+- **决策流程可见**：点线流程图展示各 Agent 阶段执行进度
+- **等待动画**：彩色旋转等待 + 彩色线条进度条，降低长等待焦虑
 
 ## 接入 LLM 增强规划
 
@@ -159,3 +166,8 @@ MEITUAN_AGENT_OPENAI_MODEL=deepseek-v4-flash
 - **LLM**：任何 OpenAI 兼容 API 均可，修改 `.env` 中的 `base_url` 和 `model` 即可
 
 所有 API Key / Token 等敏感信息必须仅存在于 `.env`（或更严格的 secrets 管理系统）中，禁止硬编码。
+
+依赖是否安装在虚拟环境中？
+
+- pip install ... ：会安装到你这个 .venv （只要你像上面那样用 .venv\Scripts\python.exe -m pip ... 或先激活 venv）。
+- npm install ... ：安装的是前端依赖到 meituan_competition_agent\webui\node_modules ， 与 Python 虚拟环境无关 。

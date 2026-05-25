@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from datetime import datetime
+from typing import Any
 
 from meituan_agent.domain.models import ChatMessage, SessionState
 from meituan_agent.memory.base import MemoryStore
@@ -40,6 +41,10 @@ class SQLiteStore(MemoryStore):
                 )
                 """
             )
+            try:
+                conn.execute("ALTER TABLE session_state ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0")
+            except Exception:
+                pass
 
     def get_state(self, session_id: str) -> SessionState | None:
         with self._connect() as conn:
@@ -67,10 +72,22 @@ class SQLiteStore(MemoryStore):
             )
 
     def append_message(self, session_id: str, message: ChatMessage) -> None:
+        now = datetime.utcnow().isoformat()
         with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO session_state(session_id, state_json, updated_at, pinned)
+                VALUES(?,?,?,0)
+                """,
+                (session_id, SessionState(session_id=session_id).model_dump_json(), now),
+            )
             conn.execute(
                 "INSERT INTO session_message(session_id, role, content, ts) VALUES(?,?,?,?)",
                 (session_id, message.role, message.content, message.ts.isoformat()),
+            )
+            conn.execute(
+                "UPDATE session_state SET updated_at = ? WHERE session_id = ?",
+                (now, session_id),
             )
 
     def list_messages(self, session_id: str, limit: int = 50) -> list[ChatMessage]:
@@ -96,4 +113,74 @@ class SQLiteStore(MemoryStore):
                 )
             )
         return out
+
+    def list_sessions(self, limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                  s.session_id,
+                  s.updated_at,
+                  COALESCE(s.pinned, 0) AS pinned,
+                  (
+                    SELECT role
+                    FROM session_message m
+                    WHERE m.session_id = s.session_id
+                    ORDER BY m.id DESC
+                    LIMIT 1
+                  ) AS last_role,
+                  (
+                    SELECT content
+                    FROM session_message m
+                    WHERE m.session_id = s.session_id
+                    ORDER BY m.id DESC
+                    LIMIT 1
+                  ) AS last_content,
+                  (
+                    SELECT ts
+                    FROM session_message m
+                    WHERE m.session_id = s.session_id
+                    ORDER BY m.id DESC
+                    LIMIT 1
+                  ) AS last_ts
+                FROM session_state s
+                WHERE EXISTS (SELECT 1 FROM session_message m WHERE m.session_id = s.session_id)
+                ORDER BY COALESCE(s.pinned, 0) DESC, s.updated_at DESC
+                LIMIT ? OFFSET ?
+                """,
+                (limit, offset),
+            ).fetchall()
+        out: list[dict[str, Any]] = []
+        for r in rows:
+            out.append(
+                {
+                    "session_id": r["session_id"],
+                    "updated_at": r["updated_at"],
+                    "pinned": int(r["pinned"] or 0),
+                    "last_role": r["last_role"],
+                    "last_content": r["last_content"],
+                    "last_ts": r["last_ts"],
+                }
+            )
+        return out
+
+    def delete_session(self, session_id: str) -> bool:
+        with self._connect() as conn:
+            row = conn.execute("SELECT 1 FROM session_state WHERE session_id = ?", (session_id,)).fetchone()
+            if not row:
+                return False
+            conn.execute("DELETE FROM session_message WHERE session_id = ?", (session_id,))
+            conn.execute("DELETE FROM session_state WHERE session_id = ?", (session_id,))
+        return True
+
+    def set_pinned(self, session_id: str, pinned: bool) -> bool:
+        with self._connect() as conn:
+            row = conn.execute("SELECT 1 FROM session_state WHERE session_id = ?", (session_id,)).fetchone()
+            if not row:
+                return False
+            conn.execute(
+                "UPDATE session_state SET pinned = ? WHERE session_id = ?",
+                (1 if pinned else 0, session_id),
+            )
+        return True
 

@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+import time
+
 from meituan_agent.agents.base import Agent
 from meituan_agent.domain.models import ItineraryItem, Location, POI, SessionState
 from meituan_agent.location_parser import extract_location_hint
+from meituan_agent.services.weather_service import WeatherService
 from meituan_agent.tools.base import MapTool
 
 
 class MapAgent(Agent):
-    def __init__(self, map_tool: MapTool) -> None:
+    def __init__(self, map_tool: MapTool, weather: WeatherService | None = None) -> None:
         self._map = map_tool
+        self._weather = weather
 
     def run(self, state: SessionState, user_message: str) -> SessionState:
         schema = state.planning_context
@@ -52,6 +56,15 @@ class MapAgent(Agent):
             location = Location(lat=39.908, lng=116.397, label="北京·天安门")
 
         state.location = location
+
+        if self._weather and location:
+            existing = state.scratch.get("weather")
+            if self._weather.should_refresh(existing):
+                snap = self._weather.fetch(lat=location.lat, lng=location.lng)
+                if snap:
+                    state.scratch["weather"] = snap.as_dict()
+                    state.scratch["weather_location_label"] = location.label
+                    state.scratch["weather_refreshed_at"] = int(time.time())
 
         # 4) 搜索半径：优先用语义分析结果，未指定默认 3km
         radius = (loc_constraint.radius_km if loc_constraint and loc_constraint.radius_km is not None else 3.0)

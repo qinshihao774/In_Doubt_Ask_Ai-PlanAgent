@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Any
 
 from meituan_agent.domain.models import ChatMessage, SessionState
 
@@ -17,4 +18,13 @@ class MemoryStore(ABC):
 
     @abstractmethod
     def list_messages(self, session_id: str, limit: int = 50) -> list[ChatMessage]: ...
+
+    @abstractmethod
+    def list_sessions(self, limit: int = 50, offset: int = 0) -> list[dict[str, Any]]: ...
+
+    @abstractmethod
+    def delete_session(self, session_id: str) -> bool: ...
+
+    @abstractmethod
+    def set_pinned(self, session_id: str, pinned: bool) -> bool: ...
 

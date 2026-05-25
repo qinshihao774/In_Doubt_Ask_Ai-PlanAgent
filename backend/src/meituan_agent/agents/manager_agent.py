@@ -20,14 +20,17 @@ from meituan_agent.agents.semantic_agent import SemanticAgent
 from meituan_agent.domain.models import SemanticSchema, SessionState, SessionStatus
 from meituan_agent.llm.openai_compat import OpenAICompatClient
 from meituan_agent.planning.planner import Planner, PlanningInput
+from meituan_agent.services.weather_service import is_bad_outdoor
 
 logger = logging.getLogger(__name__)
 
 PIPELINE_STAGES: list[dict[str, Any]] = [
     {"id": "semantic", "label": "语义分析", "active_msg": "正在理解需求...", "done_msg": "需求理解完成", "icon": "🧠"},
-    {"id": "map", "label": "地图搜索", "active_msg": "正在定位与搜索地图...", "done_msg": "位置与周边搜索完成", "icon": "🗺️"},
+    {"id": "map", "label": "地图搜索", "active_msg": "正在定位与搜索地图...", "done_msg": "位置与周边搜索完成",
+     "icon": "🗺️"},
     {"id": "food", "label": "美食搜索", "active_msg": "正在为您寻找美食...", "done_msg": "美食搜索完成", "icon": "🍜"},
-    {"id": "leisure", "label": "休闲探索", "active_msg": "正在搜索休闲好去处...", "done_msg": "休闲探索完成", "icon": "🎯"},
+    {"id": "leisure", "label": "休闲探索", "active_msg": "正在搜索休闲好去处...", "done_msg": "休闲探索完成",
+     "icon": "🎯"},
     {"id": "plan", "label": "方案规划", "active_msg": "正在生成行程方案...", "done_msg": "方案生成完毕", "icon": "📋"},
     {"id": "execution", "label": "执行落地", "active_msg": "正在执行方案...", "done_msg": "执行完成", "icon": "🚀"},
 ]
@@ -35,14 +38,14 @@ PIPELINE_STAGES: list[dict[str, Any]] = [
 
 class ManagerAgent:
     def __init__(
-        self,
-        semantic: SemanticAgent,
-        food: FoodAgent,
-        leisure: LeisureAgent,
-        map_agent: MapAgent,
-        execution: ExecutionAgent,
-        planner: Planner,
-        llm: OpenAICompatClient | None = None,
+            self,
+            semantic: SemanticAgent,
+            food: FoodAgent,
+            leisure: LeisureAgent,
+            map_agent: MapAgent,
+            execution: ExecutionAgent,
+            planner: Planner,
+            llm: OpenAICompatClient | None = None,
     ) -> None:
         self._semantic = semantic
         self._food = food
@@ -61,6 +64,10 @@ class ManagerAgent:
             schema = self._semantic.analyze(user_message, location_label=loc_label)
         else:
             schema = SemanticSchema()
+            # 补充：无 LLM 时用关键词判断确认意图
+            if _is_confirmation(user_message) and state.candidate_plans:
+                # SemanticSchema() 的 intent 的默认值为 "planning"，手动改为 confirmation
+                schema.intent = "confirmation"
         state.planning_context = schema
         # 同步到旧 profile（兼容 planner 中仍使用 profile 的代码）
         if schema.party.size is not None:
@@ -73,6 +80,9 @@ class ManagerAgent:
         state.profile.style = _map_style(schema)
         if schema.food.budget_per_person:
             state.profile.budget_level = _budget_to_level(schema.food.budget_per_person)
+
+        if schema.intent != "confirmation" and state.candidate_plans and _is_confirmation(user_message):
+            schema.intent = "confirmation"
 
         # ═══════════════════════════════════════════════════════════
         # 意图路由
@@ -118,6 +128,12 @@ class ManagerAgent:
         # 规划流水线: Map → Food → Leisure → Plan
         # ═══════════════════════════════════════════════════════════
         state = self._map.run(state, user_message)
+        if state.planning_context and is_bad_outdoor(state.scratch.get("weather")):
+            if state.planning_context.leisure.indoor_outdoor is None or state.planning_context.leisure.indoor_outdoor == "any":
+                state.planning_context.leisure.indoor_outdoor = "indoor"
+            msg = "当前天气不适合户外，优先选择室内活动"
+            if msg not in state.planning_context.hard_constraints:
+                state.planning_context.hard_constraints.append(msg)
         state = self._food.run(state, user_message)
         state = self._leisure.run(state, user_message)
         state = self._plan(state, excluded_poi_ids=set(), last_error=None)
@@ -132,12 +148,14 @@ class ManagerAgent:
         state.status = SessionStatus.awaiting_confirmation
         return state, _format_plan_message(state, self._llm if use_llm else None)
 
-    def step_stream(self, state: SessionState, user_message: str, *, use_llm: bool = True) -> Generator[dict[str, Any], None, tuple[SessionState, str]]:
+    def step_stream(self, state: SessionState, user_message: str, *, use_llm: bool = True) -> Generator[
+        dict[str, Any], None, tuple[SessionState, str]]:
         """流式执行 step，在流水线各阶段之间 yield pipeline_stage 事件。
 
         与 step() 逻辑完全一致，但每个 agent 阶段前后 yield 进度事件，
         供前端渲染点线流程可视化。
         """
+
         def _emit(stage_id: str, status: str, msg: str | None = None) -> dict[str, Any]:
             return {"type": "pipeline_stage", "stage_id": stage_id, "status": status, "msg": msg}
 
@@ -150,6 +168,9 @@ class ManagerAgent:
             schema = self._semantic.analyze(user_message, location_label=loc_label)
         else:
             schema = SemanticSchema()
+            # 改动同 step() 下的一样
+            if _is_confirmation(user_message) and state.candidate_plans:
+                schema.intent = "confirmation"
         state.planning_context = schema
         if schema.party.size is not None:
             state.profile.party_size = schema.party.size
@@ -166,6 +187,9 @@ class ManagerAgent:
         # ═══════════════════════════════════════════════════════════
         # 意图路由
         # ═══════════════════════════════════════════════════════════
+        if schema.intent != "confirmation" and state.candidate_plans and _is_confirmation(user_message):
+            schema.intent = "confirmation"
+
         if schema.intent == "chat":
             state.status = SessionStatus.planning
             if self._llm:
@@ -213,6 +237,12 @@ class ManagerAgent:
         # ═══════════════════════════════════════════════════════════
         yield _emit("map", "running", "正在定位与搜索地图...")
         state = self._map.run(state, user_message)
+        if state.planning_context and is_bad_outdoor(state.scratch.get("weather")):
+            if state.planning_context.leisure.indoor_outdoor is None or state.planning_context.leisure.indoor_outdoor == "any":
+                state.planning_context.leisure.indoor_outdoor = "indoor"
+            msg = "当前天气不适合户外，优先选择室内活动"
+            if msg not in state.planning_context.hard_constraints:
+                state.planning_context.hard_constraints.append(msg)
         yield _emit("map", "done", "位置与周边搜索完成")
 
         yield _emit("food", "running", "正在为您寻找美食...")
@@ -375,6 +405,20 @@ def _format_plan_message(state: SessionState, llm: OpenAICompatClient | None = N
     lines = []
     if state.location:
         lines.append(f"已根据你的当前位置检索：{state.location.label or f'{state.location.lat},{state.location.lng}'}")
+    weather = state.scratch.get("weather") or {}
+    if weather:
+        temp = weather.get("temperature_c")
+        pr = weather.get("precipitation_mm")
+        wind = weather.get("wind_kph")
+        parts = []
+        if isinstance(temp, (int, float)):
+            parts.append(f"{temp:.0f}°C")
+        if isinstance(pr, (int, float)):
+            parts.append(f"降水{pr:.1f}mm")
+        if isinstance(wind, (int, float)):
+            parts.append(f"风速{wind:.0f}km/h")
+        if parts:
+            lines.append(f"实时天气：{' / '.join(parts)}")
     lines.append("我为你生成了以下方案，请回复：确认 方案1 / 确认 方案2 开始执行。")
     for idx, plan in enumerate(state.candidate_plans, start=1):
         lines.append("")

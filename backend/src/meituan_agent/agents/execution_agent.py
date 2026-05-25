@@ -61,12 +61,27 @@ class ExecutionAgent(Agent):
 
             # 1) 排队检查
             av = self._availability.check_table_availability(poi_id, size=state.profile.party_size)
+            queue_minutes = av.get("queue_minutes")
+            too_long = queue_minutes is not None and int(queue_minutes) > self._max_queue
+            av_ok = bool(av.get("ok")) and not too_long
             state.executions.append(ExecutionResult(
-                ok=bool(av.get("ok")), step="check_availability",
-                details={"poi_id": poi_id, "poi_name": poi_name, **av},
+                ok=av_ok, step="check_availability",
+                details={
+                    "poi_id": poi_id,
+                    "poi_name": poi_name,
+                    "max_queue_minutes": self._max_queue,
+                    "queue_too_long": bool(too_long),
+                    **av,
+                },
             ))
-            if not av.get("ok"):
+            if not av_ok:
                 state.last_error = f"排队检查失败: {poi_name}"
+                return state
+
+            # 只检查了 ok，没有检查 queue_minutes
+            # 虽然 ExecutionAgent 构造时接受了 max_queue_minutes，但此阈值未被使用
+            if av.get("queue_minutes",0) > self._max_queue:
+                state.last_error = f"排队超时: {poi_name} 需等待{av['queue_minutes']} 分钟"
                 return state
 
             # 2) 菜单查询

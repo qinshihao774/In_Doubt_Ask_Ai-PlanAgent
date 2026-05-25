@@ -7,6 +7,7 @@ from typing import Protocol
 
 from meituan_agent.domain.models import ItineraryItem, ItineraryPlan, Location, POI, SessionState
 from meituan_agent.planning.schema import PlanningOutput
+from meituan_agent.services.weather_service import is_bad_outdoor
 from meituan_agent.tools.base import MapTool, POISearchTool
 
 
@@ -94,6 +95,7 @@ class LLMPlanner:
         state = inp.state
         food = _pois_from_scratch(state, "food_candidates", excluded=inp.excluded_poi_ids)
         leisure = _pois_from_scratch(state, "leisure_candidates", excluded=inp.excluded_poi_ids)
+        weather = state.scratch.get("weather")
 
         if not food:
             food = [
@@ -102,7 +104,10 @@ class LLMPlanner:
                 if p.category == "餐饮"
             ]
         if not leisure:
-            tags = ["亲子", "展览", "Citywalk", "剧本杀"]
+            if is_bad_outdoor(weather):
+                tags = ["博物馆", "展览", "咖啡", "商场", "剧本杀"]
+            else:
+                tags = ["亲子", "展览", "Citywalk", "剧本杀"]
             out: list[POI] = []
             for t in tags:
                 out.extend(self._poi_search.search_poi(tag=t, location=state.location))
@@ -162,6 +167,7 @@ def _enrich_routes(map_tool: MapTool, origin: Location, items: list[ItineraryIte
 def _build_prompt(state: SessionState, candidates: list[POI], excluded: set[str], last_error: str | None) -> tuple[str, str]:
     profile = state.profile.model_dump()
     loc = state.location.model_dump() if state.location else None
+    weather = state.scratch.get("weather")
 
     # 语义分析结果
     semantic = None
@@ -218,6 +224,7 @@ def _build_prompt(state: SessionState, candidates: list[POI], excluded: set[str]
             "constraints": {
                 "profile": profile,
                 "location": loc,
+                "weather": weather,
                 "semantic_analysis": semantic,
                 "duration_hours": state.profile.duration_hours,
                 "must_include": ["餐饮"],
