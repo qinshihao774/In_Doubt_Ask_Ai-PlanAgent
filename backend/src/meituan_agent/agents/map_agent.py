@@ -19,17 +19,27 @@ class MapAgent(Agent):
         loc_constraint = schema.location if schema else None
 
         # 1) 位置提示：语义分析结果优先
+        prev_hint = state.scratch.get("location_hint")
         hint = None
+        hint_source = None
         if loc_constraint and loc_constraint.area:
             hint = loc_constraint.area
+            hint_source = "semantic"
         if not hint:
-            hint = state.scratch.get("location_hint") or extract_location_hint(user_message)
+            extracted = extract_location_hint(user_message)
+            if extracted:
+                hint = extracted
+                hint_source = "message"
+        if not hint and prev_hint:
+            hint = prev_hint
+            hint_source = "memory"
         if hint:
             state.scratch["location_hint"] = hint
+            state.scratch["location_hint_source"] = hint_source
 
         # 2) 城市上下文
         city = None
-        if state.location and state.location.label:
+        if state.location and state.location.label and state.scratch.get("location_source") != "bootstrap":
             label = state.location.label
             for suffix in ["市", "省", "自治区", "县"]:
                 label = label.replace(suffix, "")
@@ -38,17 +48,28 @@ class MapAgent(Agent):
         # 3) 位置解析
         location = state.location
 
-        if not location and hint and hasattr(self._map, "geocode"):
+        should_geocode = False
+        if hint and hasattr(self._map, "geocode"):
+            if not location:
+                should_geocode = True
+            elif state.scratch.get("location_source") in {"bootstrap", "ip", "default"}:
+                should_geocode = True
+            elif hint_source in {"semantic", "message"} and prev_hint != hint:
+                should_geocode = True
+
+        if should_geocode:
             try:
-                result = self._map.geocode(hint, city=city)
+                result = self._map.geocode(hint, city=city if hint_source == "memory" else None)
                 if result:
                     location = result
             except Exception:
                 pass
 
+        used_ip_location = False
         if not location and hasattr(self._map, "ip_location"):
             try:
                 location = self._map.ip_location()
+                used_ip_location = bool(location)
             except Exception:
                 pass
 
@@ -56,6 +77,12 @@ class MapAgent(Agent):
             location = Location(lat=39.908, lng=116.397, label="北京·天安门")
 
         state.location = location
+        if should_geocode and location:
+            state.scratch["location_source"] = "geocoded_hint"
+        elif used_ip_location and location:
+            state.scratch.setdefault("location_source", "ip")
+        elif location and location.label == "北京·天安门":
+            state.scratch.setdefault("location_source", "default")
 
         if self._weather and location:
             existing = state.scratch.get("weather")

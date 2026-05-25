@@ -441,7 +441,7 @@ def _format_plan_message(state: SessionState, llm: OpenAICompatClient | None = N
             parts.append(f"风速{wind:.0f}km/h")
         if parts:
             lines.append(f"实时天气：{' / '.join(parts)}")
-    lines.append("我为你生成了以下方案，请回复：确认 方案1 / 确认 方案2 开始执行。")
+    lines.append("我已为你生成了以下方案，请选择你心意的方案并开始执行。")
     for idx, plan in enumerate(state.candidate_plans, start=1):
         lines.append("")
         lines.append(f"方案{idx}：{plan.title}")
