@@ -219,7 +219,7 @@ body{
 .session-card__label{font-size:12px;color:rgba(231,233,255,.48);margin-bottom:6px;font-weight:650}
 .session-card__id{font-family:var(--mono);font-size:12px;color:rgba(231,233,255,.80);word-break:break-all}
 .session-card--mini .session-card__id{font-family:var(--sans);font-size:12px}
-.session-list{display:flex;flex-direction:column;gap:8px;max-height:260px;overflow:auto;padding-right:4px}
+.session-list{display:flex;flex-direction:column;gap:8px;max-height:260px;overflow:auto;padding-right:4px;-webkit-overflow-scrolling:touch}
 .session-empty{color:rgba(231,233,255,.42);font-size:12px;padding:6px 2px}
 .session-item{
   position:relative;
@@ -300,6 +300,7 @@ body{
   padding:6px 6px 2px;
   border-radius:14px;
   scroll-behavior:smooth;
+  -webkit-overflow-scrolling:touch;
 }
 
 .message-row{display:flex;gap:12px;margin:10px 0;align-items:flex-end}
@@ -626,4 +627,36 @@ body{
     filter:none;
   }
   .plan-card--back,.plan-card--left,.plan-card--right{display:none}
+}
+@media (max-width:480px){
+  body{overflow:auto}
+  #app{padding:12px 14px}
+  .hero{margin:10px auto 12px}
+  .hero-title{font-size:26px}
+  .hero-subtitle{font-size:10px;letter-spacing:.18em}
+  .top-right{right:8px;top:8px;gap:6px}
+  .geo-actions{gap:6px}
+  .loc-badge{max-width:180px;padding:5px 10px}
+  .loc-text{font-size:11px}
+  .loc-weather{font-size:10px;padding:3px 7px}
+  .layout{min-height:70vh;height:auto;gap:12px}
+  .sidebar{padding:12px 10px}
+  .chat{padding:12px 10px 10px}
+  .messages{min-height:200px}
+  .composer__input{height:44px;font-size:16px}
+  .composer__send{width:44px;height:44px}
+  .btn{padding:6px 10px;height:30px;font-size:12px}
+  .btn--icon{width:30px;padding:0}
+  .geo-btn{height:28px;padding:0 8px;font-size:11px}
+  .plan-carousel{min-height:320px}
+  .plan-carousel__stage{width:100%}
+  .plan-arrow{width:40px;height:40px;font-size:26px}
+  .plan-card{padding:14px 14px 12px}
+  .plan-card__title{font-size:13px}
+  .message-bubble{max-width:92%}
+  .session-card__id{font-size:11px}
+  .thinking-text{font-size:12px}
+  .pipeline-node__dot{width:30px;height:30px;font-size:14px}
+  .pipeline-node__label{font-size:10px}
+  .pipeline-connector__line{width:20px}
 }
