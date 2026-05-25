@@ -1,4 +1,4 @@
-import './style.css'
+﻿import './style.css'
 import { deleteSession, fetchMessages, fetchSessions, fetchState, fetchWeather, health, initSession, setPinned, streamChat } from './api'
 import { state, loadState, resetState } from './state'
 import { parsePlans, renderPlanCardsHtml } from './plans'
