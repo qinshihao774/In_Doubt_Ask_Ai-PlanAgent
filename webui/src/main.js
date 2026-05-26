@@ -1,4 +1,4 @@
-import './style.css'
+﻿import './style.css'
 import { deleteSession, fetchMessages, fetchSessions, fetchState, fetchWeather, health, initSession, setPinned, streamChat } from './api'
 import { state, loadState, resetState } from './state'
 import { parsePlans, renderPlanCardsHtml } from './plans'
@@ -146,6 +146,24 @@ const renderMessages = () => {
       if (n <= 1) return
       if (dir === 'prev') state.activePlanIndex = (state.activePlanIndex - 1 + n) % n
       else state.activePlanIndex = (state.activePlanIndex + 1) % n
+      renderMessages()
+    })
+  })
+
+  // Touch swipe for plan carousel
+  box.querySelectorAll('.plan-carousel').forEach((carousel) => {
+    let startX = 0
+    carousel.addEventListener('touchstart', (e) => {
+      startX = e.touches[0].clientX
+    }, { passive: true })
+    carousel.addEventListener('touchend', (e) => {
+      const endX = e.changedTouches[0].clientX
+      const diff = startX - endX
+      const n = Number(carousel.getAttribute('data-count') || '0') || 0
+      if (n <= 1) return
+      if (Math.abs(diff) < 50) return
+      if (diff > 0) state.activePlanIndex = (state.activePlanIndex + 1) % n
+      else state.activePlanIndex = (state.activePlanIndex - 1 + n) % n
       renderMessages()
     })
   })
