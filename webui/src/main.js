@@ -94,7 +94,7 @@ const renderMessages = () => {
       if (m.role === 'user') {
         return `<div class="message-row message-row--user">
           <div class="message-bubble message-bubble--user">${esc(m.content)}</div>
-          <div class="avatar avatar--user">你</div>
+          <div class="avatar avatar--user">我</div>
         </div>`
       }
 

@@ -6,6 +6,7 @@ from typing import Any
 from meituan_agent.domain.models import ChatMessage, Location, SessionState, SessionStatus
 from meituan_agent.memory.base import MemoryStore
 from meituan_agent.agents.manager_agent import ManagerAgent
+from meituan_agent.location_parser import extract_location_hint
 
 
 class SessionService:
@@ -25,14 +26,19 @@ class SessionService:
         if location and not state.scratch.get("location_hint"):
             state.location = location
             state.scratch["bootstrap_location"] = location.model_dump()
+            state.scratch["location_source"] = "bootstrap"
             self._memory.put_state(state)
         return state
 
     def chat(self, *, session_id: str | None, message: str, bootstrap_location: Location | None = None) -> tuple[SessionState, str]:
         state = self.ensure_session(session_id)
+        hint = extract_location_hint(message)
+        if hint:
+            state.scratch["location_hint"] = hint
         if bootstrap_location and not state.scratch.get("location_hint"):
             state.location = bootstrap_location
             state.scratch["bootstrap_location"] = bootstrap_location.model_dump()
+            state.scratch["location_source"] = "bootstrap"
         self._memory.append_message(state.session_id, ChatMessage(role="user", content=message))
 
         state, reply = self._manager.step(state, message)
@@ -43,9 +49,13 @@ class SessionService:
 
     def chat_raw(self, *, session_id: str | None, message: str, bootstrap_location: Location | None = None) -> tuple[SessionState, str]:
         state = self.ensure_session(session_id)
+        hint = extract_location_hint(message)
+        if hint:
+            state.scratch["location_hint"] = hint
         if bootstrap_location and not state.scratch.get("location_hint"):
             state.location = bootstrap_location
             state.scratch["bootstrap_location"] = bootstrap_location.model_dump()
+            state.scratch["location_source"] = "bootstrap"
         self._memory.append_message(state.session_id, ChatMessage(role="user", content=message))
 
         state, reply = self._manager.step(state, message, use_llm=False)

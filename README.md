@@ -70,8 +70,8 @@ copy .env.example .env
 ### 6) 启动后端（FastAPI）
 
 ```powershell
-cd backend
-..\.venv\Scripts\python run_api.py
+cd e:\PythonProject\Private_planning_agent\meituan_competition_agent\backend
+python run_api.py
 ```
 
 验证：
