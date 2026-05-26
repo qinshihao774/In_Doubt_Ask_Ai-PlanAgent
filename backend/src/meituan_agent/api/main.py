@@ -124,6 +124,8 @@ def create_app() -> FastAPI:
             state.scratch["bootstrap_location"] = req.user_location.model_dump()
             state.scratch["location_source"] = "bootstrap"
         svc._memory.append_message(state.session_id, ChatMessage(role="user", content=req.message))
+        msgs = svc._memory.list_messages(state.session_id, limit=18)
+        state.scratch["recent_messages"] = [{"role": m.role, "content": m.content} for m in msgs]
 
         async def event_gen():
             nonlocal_state = state
