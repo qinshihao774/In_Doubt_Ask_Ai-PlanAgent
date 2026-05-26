@@ -71,7 +71,11 @@ class ManagerAgent:
         # ═══════════════════════════════════════════════════════════
         if self._semantic is not None:
             loc_label = state.location.label if state.location else "未知"
-            schema = self._semantic.analyze(user_message, location_label=loc_label)
+            schema = self._semantic.analyze(
+                user_message,
+                location_label=loc_label,
+                conversation=self._conversation_text(state, user_message),
+            )
         else:
             schema = SemanticSchema()
             # 补充：无 LLM 时用关键词判断确认意图
@@ -99,7 +103,7 @@ class ManagerAgent:
         if schema.intent == "chat":
             state.status = SessionStatus.planning
             if self._llm:
-                return state, self._chat_reply(user_message)
+                return state, self._chat_reply(user_message, history=self._conversation_text(state, user_message))
             return state, "你好呀！有什么可以帮你的吗？"
 
         if schema.intent == "confirmation" and state.candidate_plans:
@@ -185,7 +189,11 @@ class ManagerAgent:
         yield _emit("semantic", "running", "正在理解需求...")
         if self._semantic is not None:
             loc_label = state.location.label if state.location else "未知"
-            schema = self._semantic.analyze(user_message, location_label=loc_label)
+            schema = self._semantic.analyze(
+                user_message,
+                location_label=loc_label,
+                conversation=self._conversation_text(state, user_message),
+            )
         else:
             schema = SemanticSchema()
             if _is_confirmation(user_message) and state.candidate_plans:
@@ -212,7 +220,7 @@ class ManagerAgent:
         if schema.intent == "chat":
             state.status = SessionStatus.planning
             if self._llm:
-                return state, self._chat_reply(user_message)
+                return state, self._chat_reply(user_message, history=self._conversation_text(state, user_message))
             return state, "你好呀！有什么可以帮你的吗？"
 
         if schema.intent == "confirmation" and state.candidate_plans:
@@ -336,16 +344,44 @@ class ManagerAgent:
         state.candidate_plans = uniq[:3]
         return state
 
-    def _chat_reply(self, user_message: str) -> str:
+    def _chat_reply(self, user_message: str, *, history: str | None = None) -> str:
         system = (
             "你是一个友好、温暖的 AI 助手。你具备行程规划能力，"
             "但当前用户只是在和你闲聊。请用自然的语气回复，像朋友聊天一样。"
             "保持轻松、真诚、简短。"
         )
         try:
-            return self._llm.chat(system=system, user=user_message)
+            user = user_message
+            if history:
+                user = f"对话历史（最近对话，按时间顺序）：\n{history}\n\n用户消息：{user_message}"
+            return self._llm.chat(system=system, user=user)
         except Exception:
             return "你好呀！今天有什么可以帮你的吗？"
+
+    def _conversation_text(self, state: SessionState, user_message: str) -> str | None:
+        raw = state.scratch.get("recent_messages")
+        if not raw or not isinstance(raw, list):
+            return None
+        parts: list[str] = []
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            role = item.get("role")
+            content = item.get("content")
+            if role not in {"user", "assistant"}:
+                continue
+            if not isinstance(content, str) or not content.strip():
+                continue
+            if role == "user" and content.strip() == (user_message or "").strip():
+                continue
+            label = "用户" if role == "user" else "助手"
+            parts.append(f"{label}：{content.strip()}")
+        text = "\n".join(parts).strip()
+        if not text:
+            return None
+        if len(text) > 2600:
+            text = text[-2600:]
+        return text
 
     def _plan(self, state: SessionState, *, excluded_poi_ids: set[str], last_error: str | None) -> SessionState:
         plans = self._planner.plan(PlanningInput(state=state, excluded_poi_ids=excluded_poi_ids, last_error=last_error))

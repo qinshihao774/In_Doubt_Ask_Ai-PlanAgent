@@ -136,13 +136,12 @@ class SemanticAgent:
     def __init__(self, llm) -> None:
         self._llm = llm
 
-    def analyze(self, user_message: str, location_label: str = "未知") -> SemanticSchema:
+    def analyze(self, user_message: str, location_label: str = "未知", *, conversation: str | None = None) -> SemanticSchema:
         """分析用户消息，返回完整 SemanticSchema"""
-        user_prompt = (
-            f"用户当前位置：{location_label}\n\n"
-            f"用户消息：{user_message}\n\n"
-            f"请深度分析上述消息，输出完整的 JSON 需求分析。"
-        )
+        prefix = f"用户当前位置：{location_label}\n\n"
+        if conversation:
+            prefix += f"对话历史（最近对话，按时间顺序）：\n{conversation}\n\n"
+        user_prompt = prefix + f"用户消息：{user_message}\n\n请深度分析上述消息，输出完整的 JSON 需求分析。"
 
         try:
             raw = self._llm.chat(system=SEMANTIC_SYSTEM_PROMPT, user=user_prompt)
