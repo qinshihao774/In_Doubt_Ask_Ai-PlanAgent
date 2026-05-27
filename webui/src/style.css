@@ -1,4 +1,4 @@
-﻿:root{
+:root{
   --bg-0:#070812;
   --bg-1:#0b0c18;
   --panel:rgba(255,255,255,.05);
@@ -496,6 +496,13 @@ body{
   outline:none;
 }
 .composer__input::placeholder{color:rgba(231,233,255,.35)}
+.composer__asr{width:46px;height:40px;border-radius:14px;padding:0}
+.composer__asr svg{width:18px;height:18px;opacity:.9}
+.composer__asr--on{
+  border-color:rgba(255,209,0,.35);
+  background:rgba(255,209,0,.10);
+  box-shadow:0 10px 26px rgba(255,209,0,.12);
+}
 .composer__send{width:46px;height:40px;border-radius:14px;padding:0}
 
 .plan-wrap{width:100%}
@@ -644,6 +651,7 @@ body{
   .chat{padding:12px 10px 10px}
   .messages{min-height:200px}
   .composer__input{height:44px;font-size:16px}
+  .composer__asr{width:44px;height:44px}
   .composer__send{width:44px;height:44px}
   .btn{padding:6px 10px;height:30px;font-size:12px}
   .btn--icon{width:30px;padding:0}

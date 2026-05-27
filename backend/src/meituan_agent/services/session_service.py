@@ -40,6 +40,8 @@ class SessionService:
             state.scratch["bootstrap_location"] = bootstrap_location.model_dump()
             state.scratch["location_source"] = "bootstrap"
         self._memory.append_message(state.session_id, ChatMessage(role="user", content=message))
+        msgs = self._memory.list_messages(state.session_id, limit=18)
+        state.scratch["recent_messages"] = [{"role": m.role, "content": m.content} for m in msgs]
 
         state, reply = self._manager.step(state, message)
 
@@ -57,6 +59,8 @@ class SessionService:
             state.scratch["bootstrap_location"] = bootstrap_location.model_dump()
             state.scratch["location_source"] = "bootstrap"
         self._memory.append_message(state.session_id, ChatMessage(role="user", content=message))
+        msgs = self._memory.list_messages(state.session_id, limit=18)
+        state.scratch["recent_messages"] = [{"role": m.role, "content": m.content} for m in msgs]
 
         state, reply = self._manager.step(state, message, use_llm=False)
 

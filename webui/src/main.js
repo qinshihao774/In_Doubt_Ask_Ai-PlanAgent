@@ -1,4 +1,4 @@
-﻿import './style.css'
+import './style.css'
 import { deleteSession, fetchMessages, fetchSessions, fetchState, fetchWeather, health, initSession, setPinned, streamChat } from './api'
 import { state, loadState, resetState } from './state'
 import { parsePlans, renderPlanCardsHtml } from './plans'
@@ -12,6 +12,108 @@ const esc = (s) =>
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;')
+
+let asrRecognizer = null
+let asrListening = false
+let asrWarnedUnsupported = false
+
+const setAsrUi = (on) => {
+  const btn = document.querySelector('#asr-btn')
+  if (!btn) return
+  btn.classList.toggle('composer__asr--on', !!on)
+  btn.setAttribute('aria-pressed', on ? 'true' : 'false')
+  btn.setAttribute('title', on ? '停止语音输入' : '语音转文字')
+}
+
+const appendToPrompt = (text) => {
+  const input = document.querySelector('#prompt')
+  const t = (text || '').trim()
+  if (!input || !t) return
+  const cur = input.value || ''
+  const sep = cur && !/\s$/.test(cur) ? ' ' : ''
+  input.value = cur + sep + t
+  input.focus()
+  input.setSelectionRange(input.value.length, input.value.length)
+}
+
+const ensureAsr = () => {
+  if (asrRecognizer) return asrRecognizer
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+  if (!SpeechRecognition) return null
+
+  const r = new SpeechRecognition()
+  r.lang = 'zh-CN'
+  r.interimResults = true
+  r.continuous = true
+  r.maxAlternatives = 1
+
+  r.onresult = (e) => {
+    let out = ''
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const res = e.results[i]
+      if (res && res.isFinal && res[0] && res[0].transcript) {
+        out += res[0].transcript
+      }
+    }
+    appendToPrompt(out)
+  }
+
+  r.onerror = (e) => {
+    stopAsr()
+    const err = (e && e.error) || ''
+    if (err === 'not-allowed' || err === 'service-not-allowed') {
+      window.alert('未授予麦克风权限，无法进行语音转文字。请在浏览器地址栏权限设置中允许麦克风后重试。')
+    } else if (err === 'no-speech') {
+      window.alert('没有检测到语音输入，请重试。')
+    }
+  }
+
+  r.onend = () => {
+    asrListening = false
+    setAsrUi(false)
+  }
+
+  asrRecognizer = r
+  return r
+}
+
+const startAsr = () => {
+  const r = ensureAsr()
+  if (!r) {
+    if (!asrWarnedUnsupported) {
+      asrWarnedUnsupported = true
+      window.alert('当前浏览器不支持语音识别（SpeechRecognition）。建议使用最新版 Chrome。')
+    }
+    return
+  }
+
+  try {
+    r.start()
+    asrListening = true
+    setAsrUi(true)
+  } catch {
+    asrListening = false
+    setAsrUi(false)
+  }
+}
+
+const stopAsr = () => {
+  if (!asrListening) {
+    setAsrUi(false)
+    return
+  }
+  asrListening = false
+  setAsrUi(false)
+  try {
+    asrRecognizer && asrRecognizer.stop()
+  } catch {
+  }
+}
+
+const toggleAsr = () => {
+  if (asrListening) stopAsr()
+  else startAsr()
+}
 
 const mount = () => {
   const root = document.querySelector('#app')
@@ -62,6 +164,14 @@ const mount = () => {
       </div>
       <form class="composer" id="composer">
         <input class="composer__input" id="prompt" placeholder="描述你的需求，例如：下午2点出发，带5岁娃，老婆减脂，帮我规划4-6小时..." autocomplete="off"/>
+        <button class="btn btn--ghost composer__asr" type="button" id="asr-btn" aria-label="语音转文字" aria-pressed="false" title="语音转文字">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M12 14c1.66 0 3-1.34 3-3V6a3 3 0 0 0-6 0v5c0 1.66 1.34 3 3 3Z" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M19 11a7 7 0 0 1-14 0" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+            <path d="M12 18v3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+            <path d="M8 21h8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+          </svg>
+        </button>
         <button class="btn btn--primary composer__send" type="submit" aria-label="发送">↗</button>
       </form>
     </section>
@@ -440,11 +550,19 @@ const bind = () => {
 
   document.querySelector('#composer').addEventListener('submit', (e) => {
     e.preventDefault()
+    stopAsr()
     const input = document.querySelector('#prompt')
     const v = (input.value || '').trim()
     input.value = ''
     sendMessage(v)
   })
+
+  const asrBtn = document.querySelector('#asr-btn')
+  if (asrBtn) {
+    asrBtn.addEventListener('click', () => {
+      toggleAsr()
+    })
+  }
 
   document.querySelector('#new-session').addEventListener('click', async () => {
     if (state.isProcessing) return
