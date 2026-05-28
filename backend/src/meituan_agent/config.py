@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     osm_overpass_url: str = "https://overpass-api.de/api/interpreter"
     osm_osrm_url: str = "https://router.project-osrm.org"
 
+    dashscope_app_id: str = ""
+
     max_queue_minutes: int = 60
 
 

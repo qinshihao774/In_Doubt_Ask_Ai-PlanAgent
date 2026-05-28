@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -129,7 +130,14 @@ class Container:
         self.weather_service = WeatherService()
 
         # ===== Agent 初始化 =====
-        self.semantic_agent = SemanticAgent(llm) if llm else None
+        dashscope_key = os.environ.get("DASHSCOPE_API_KEY", "")
+        dashscope_app_id = (self.settings.dashscope_app_id or "").strip()
+        if dashscope_key and dashscope_app_id:
+            self.semantic_agent = SemanticAgent(dashscope_api_key=dashscope_key, dashscope_app_id=dashscope_app_id)
+        elif llm:
+            self.semantic_agent = SemanticAgent(llm)
+        else:
+            self.semantic_agent = None
         self.food_agent = FoodAgent(self.meituan)
         self.leisure_agent = LeisureAgent(self.meituan)
         self.map_agent = MapAgent(self.map_tool, weather=self.weather_service)

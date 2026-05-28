@@ -10,8 +10,11 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from typing import Any
+
+import httpx
 
 from meituan_agent.domain.models import (
     FoodConstraint,
@@ -158,20 +161,44 @@ SEMANTIC_SYSTEM_PROMPT = """你是一个深度语义分析器。你的任务是�
 
 
 class SemanticAgent:
-    """深度语义分析 Agent —— 完全 LLM 驱动，无硬编码规则"""
+    """深度语义分析 Agent —— 支持 DashScope Agent API 或 LLM 直调"""
 
-    def __init__(self, llm) -> None:
+    def __init__(self, llm=None, *, dashscope_api_key: str = "", dashscope_app_id: str = "") -> None:
         self._llm = llm
+        self._dashscope_api_key = dashscope_api_key or os.environ.get("DASHSCOPE_API_KEY", "")
+        self._dashscope_app_id = dashscope_app_id
+
+    def _call_dashscope(self, prompt: str) -> str:
+        """调用 DashScope Agent App API"""
+        url = f"https://dashscope.aliyuncs.com/api/v1/apps/{self._dashscope_app_id}/completion"
+        headers = {
+            "Authorization": f"Bearer {self._dashscope_api_key}",
+            "Content-Type": "application/json",
+        }
+        body = {"input": {"prompt": prompt}, "parameters": {}, "debug": {}}
+        with httpx.Client(timeout=60) as client:
+            resp = client.post(url, json=body, headers=headers)
+            resp.raise_for_status()
+        return resp.json()["output"]["text"]
 
     def analyze(self, user_message: str, location_label: str = "未知", *, conversation: str | None = None) -> SemanticSchema:
         """分析用户消息，返回完整 SemanticSchema"""
-        prefix = f"用户当前位置：{location_label}\n\n"
-        if conversation:
-            prefix += f"对话历史（最近对话，按时间顺序）：\n{conversation}\n\n"
-        user_prompt = prefix + f"用户消息：{user_message}\n\n请深度分析上述消息，输出完整的 JSON 需求分析。"
-
         try:
-            raw = self._llm.chat(system=SEMANTIC_SYSTEM_PROMPT, user=user_prompt)
+            if self._dashscope_api_key and self._dashscope_app_id:
+                # DashScope 路径：Agent 内部已封装指令，只发送原始数据
+                parts = [f"用户当前位置：{location_label}"]
+                if conversation:
+                    parts.append(f"对话历史：\n{conversation}")
+                parts.append(f"用户消息：{user_message}")
+                prompt = "\n\n".join(parts)
+                raw = self._call_dashscope(prompt)
+            else:
+                # LLM 直调路径：保留完整 system prompt
+                prefix = f"用户当前位置：{location_label}\n\n"
+                if conversation:
+                    prefix += f"对话历史（最近对话，按时间顺序）：\n{conversation}\n\n"
+                user_prompt = prefix + f"用户消息：{user_message}\n\n请深度分析上述消息，输出完整的 JSON 需求分析。"
+                raw = self._llm.chat(system=SEMANTIC_SYSTEM_PROMPT, user=user_prompt)
             schema = self._parse(raw)
             return self._post_process(schema, user_message)
         except Exception as e:
