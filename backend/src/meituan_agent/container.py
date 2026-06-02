@@ -67,9 +67,13 @@ class SimOrder(OrderTool):
 
 class Container:
     def __init__(self) -> None:
-        load_dotenv()
-        self.settings = load_settings()
         root = Path(__file__).resolve().parents[3]
+        dotenv_path = root / ".env"
+        if dotenv_path.exists():
+            load_dotenv(dotenv_path=dotenv_path, override=True)
+        else:
+            load_dotenv(override=True)
+        self.settings = load_settings()
         data_dir = Path(self.settings.data_dir)
         if not data_dir.is_absolute():
             data_dir = root / data_dir

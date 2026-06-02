@@ -2,6 +2,14 @@
 
 基于 **Plan-and-Execute（规划-执行）** 架构的多 Agent 协作系统，输入自然语言需求，自动完成语义理解 → 位置解析 → POI 搜索 → 方案规划 → 用户确认 → 执行落地 → 邮件通知的全闭环流程。
 
+## 每日更新项目拉取最新的main：
+
+```powershell
+git fetch origin    
+git pull origin main
+```
+
+
 ## 启动指南
 
 ### 环境要求
