@@ -30,6 +30,12 @@ class Settings(BaseSettings):
     osm_overpass_url: str = "https://overpass-api.de/api/interpreter"
     osm_osrm_url: str = "https://router.project-osrm.org"
 
+    dashscope_app_id: str = ""
+
+    # 高德 JS API（前端路线地图展示专用，与后端 POI 搜索 Key 分开）
+    amap_js_key: str = ""
+    amap_security_code: str = ""
+
     max_queue_minutes: int = 60
 
 

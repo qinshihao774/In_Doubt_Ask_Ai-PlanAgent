@@ -4,6 +4,7 @@ import { state, loadState, resetState } from './state'
 import { parsePlans, renderPlanCardsHtml } from './plans'
 import { renderPipeline } from './pipeline'
 import { getBrowserLocation, reverseGeocodeNominatim } from './location'
+import { renderMap } from './map'
 
 const esc = (s) =>
   (s || '')
@@ -175,7 +176,16 @@ const mount = () => {
         <button class="btn btn--primary composer__send" type="submit" aria-label="发送">↗</button>
       </form>
     </section>
-  </main>`
+  </main>
+
+  <!-- Persistent map overlay (outside messages to survive re-renders) -->
+  <div id="map-panel" class="map-panel" style="display:none">
+    <div class="map-panel__header">
+      <span class="map-panel__title">🗺️ 行程路线地图</span>
+      <button class="btn btn--ghost map-panel__close" id="map-close-btn" type="button" aria-label="关闭地图">✕</button>
+    </div>
+    <div id="map-container" class="map-panel__body"></div>
+  </div>`
 }
 
 const setStatus = (mode) => {
@@ -277,6 +287,14 @@ const renderMessages = () => {
       renderMessages()
     })
   })
+
+  // Map toggle button (re-attached each render since DOM is recreated)
+  const mapBtn = box.querySelector('#map-toggle-btn')
+  if (mapBtn) {
+    mapBtn.addEventListener('click', () => {
+      if (state.sessionId) renderMap(state.sessionId, state.activePlanIndex)
+    })
+  }
 
   box.scrollTop = box.scrollHeight
 }
@@ -618,6 +636,12 @@ const bind = () => {
     } catch {
       setLocationUi()
     }
+  })
+
+  // Map panel close button
+  document.querySelector('#map-close-btn').addEventListener('click', () => {
+    const panel = document.querySelector('#map-panel')
+    if (panel) panel.style.display = 'none'
   })
 }
 

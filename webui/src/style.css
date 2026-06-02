@@ -19,12 +19,14 @@
   color-scheme:dark;
 }
 
+/* 防止任何子元素撑出横向滚动条 */
 *{box-sizing:border-box}
-html,body{height:100%}
+html,body{height:100%;overflow-x:hidden}
 body{
   margin:0;
   font:14px/1.55 var(--sans);
   color:var(--text);
+  /* 背景渐变使用固定像素尺寸，仅作视觉装饰，不参与布局 */
   background:radial-gradient(1200px 900px at 20% 10%,rgba(255,122,24,.12),transparent 55%),
              radial-gradient(1000px 700px at 80% 0%,rgba(255,209,0,.10),transparent 60%),
              linear-gradient(180deg,var(--bg-0),var(--bg-1));
@@ -35,6 +37,9 @@ body{
   height:100%;
   position:relative;
   padding:26px 28px;
+  /* 确保 app 容器不超出视口宽度 */
+  max-width:100vw;
+  overflow:hidden;
 }
 
 .bg{position:absolute;inset:0;pointer-events:none;overflow:hidden}
@@ -172,6 +177,10 @@ body{
   gap:18px;
   height:calc(100% - 140px);
   align-items:stretch;
+  /* 确保布局不超出视口宽度 */
+  width:100%;
+  max-width:100%;
+  overflow:hidden;
 }
 
 .sidebar,.chat{
@@ -293,6 +302,8 @@ body{
   flex-direction:column;
   gap:12px;
   min-height:0;
+  /* 防止子元素（如 pipeline 横向溢出）撑开容器 */
+  overflow:hidden;
 }
 .messages{
   flex:1 1 auto;
@@ -349,14 +360,19 @@ body{
   border-radius:16px;
   border:1px solid rgba(255,255,255,.08);
   background:rgba(255,255,255,.025);
+  /* 防止内部 pipeline 横向溢出撑开容器 */
+  overflow:hidden;
 }
 
+/* pipeline 流程图：内容超出时在容器内横向滚动，不撑开页面 */
 .pipeline-wrapper{
   padding:14px 10px;
   border-radius:16px;
   border:1px solid rgba(255,255,255,.08);
   background:rgba(255,255,255,.02);
   overflow-x:auto;
+  /* 确保 wrapper 自身不超出父容器宽度 */
+  max-width:100%;
 }
 .pipeline-flow{
   display:flex;
@@ -505,7 +521,7 @@ body{
 }
 .composer__send{width:46px;height:40px;border-radius:14px;padding:0}
 
-.plan-wrap{width:100%}
+.plan-wrap{width:100%;max-width:100%;overflow:hidden}
 .plan-intro{color:var(--muted);font-size:12px;margin-bottom:10px;line-height:1.7}
 .plan-carousel{
   position:relative;
@@ -518,6 +534,8 @@ body{
   border:1px solid rgba(255,255,255,.08);
   box-shadow:0 26px 70px rgba(0,0,0,.45);
   overflow:hidden;
+  /* 确保 carousel 不超出父容器宽度 */
+  max-width:100%;
 }
 .plan-carousel::before{
   content:"";
@@ -615,12 +633,72 @@ body{
 .dot--on{color:var(--primary)}
 .plan-caption{text-align:center;margin-top:6px;color:rgba(231,233,255,.42);font-size:12px}
 
+/* ─── Map panel overlay ─── */
+.map-panel{
+  position:fixed;
+  top:50%;left:50%;
+  transform:translate(-50%,-50%);
+  width:min(960px,92vw);
+  height:min(600px,82vh);
+  z-index:2000;
+  display:flex;
+  flex-direction:column;
+  border-radius:20px;
+  border:1px solid rgba(255,255,255,.14);
+  background:rgba(10,12,22,.92);
+  backdrop-filter:blur(14px);
+  box-shadow:0 30px 80px rgba(0,0,0,.6),0 0 0 9999px rgba(0,0,0,.45);
+  overflow:hidden;
+}
+.map-panel__header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:14px 18px;
+  border-bottom:1px solid rgba(255,255,255,.08);
+  flex-shrink:0;
+}
+.map-panel__title{font-size:14px;font-weight:700;color:var(--text)}
+.map-panel__close{
+  width:30px;height:30px;
+  border-radius:10px;
+  font-size:16px;
+  display:grid;place-items:center;
+  padding:0;
+  color:rgba(231,233,255,.72);
+}
+.map-panel__close:hover{color:var(--text);background:rgba(255,255,255,.08)}
+.map-panel__body{
+  flex:1;
+  min-height:400px;
+  height:0;
+  position:relative;
+}
+
 @media (max-width:1160px){
-  body{overflow:auto}
+  /* 移动端只允许纵向滚动，禁止横向滚动 */
+  body{overflow-x:hidden;overflow-y:auto}
   #app{padding:18px}
   .layout{grid-template-columns:1fr;height:auto}
   .sidebar{order:2}
   .chat{order:1}
+}
+
+@supports (height: 1dvh) {
+  @media (max-width:720px){
+    .layout{height:auto;min-height:auto}
+    .chat{
+      height:calc(100dvh - 200px);
+      min-height:300px;
+    }
+    .messages{
+      flex:1 1 0;
+      min-height:0;
+      overflow-y:auto;
+    }
+    .processing{
+      max-height:35dvh;
+      overflow-y:auto;
+    }
+  }
 }
 
 @media (max-width:720px){
@@ -636,7 +714,8 @@ body{
   .plan-card--back,.plan-card--left,.plan-card--right{display:none}
 }
 @media (max-width:480px){
-  body{overflow:auto}
+  /* 移动端只允许纵向滚动，禁止横向滚动 */
+  body{overflow-x:hidden;overflow-y:auto}
   #app{padding:12px 14px}
   .hero{margin:10px auto 12px}
   .hero-title{font-size:26px}
@@ -646,10 +725,23 @@ body{
   .loc-badge{max-width:180px;padding:5px 10px}
   .loc-text{font-size:11px}
   .loc-weather{font-size:10px;padding:3px 7px}
-  .layout{min-height:70vh;height:auto;gap:12px}
+  /* 移动端布局约束：不超出视口，只允许纵向滚动 */
+  .layout{min-height:auto;height:auto;gap:12px;overflow-x:hidden}
+  .chat{
+    height:calc(100vh - 120px);
+    min-height:280px;
+  }
+  .messages{
+    flex:1 1 0;
+    min-height:0;
+    overflow-y:auto;
+  }
   .sidebar{padding:12px 10px}
   .chat{padding:12px 10px 10px}
-  .messages{min-height:200px}
+  .processing{
+    max-height:40vh;
+    overflow-y:auto;
+  }
   .composer__input{height:44px;font-size:16px}
   .composer__asr{width:44px;height:44px}
   .composer__send{width:44px;height:44px}
@@ -667,4 +759,6 @@ body{
   .pipeline-node__dot{width:30px;height:30px;font-size:14px}
   .pipeline-node__label{font-size:10px}
   .pipeline-connector__line{width:20px}
+  .map-panel{width:98vw;height:80vh;border-radius:14px}
+  .map-panel__header{padding:10px 14px}
 }

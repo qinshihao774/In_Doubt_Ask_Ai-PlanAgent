@@ -8,6 +8,7 @@ ManagerAgent — 决策管理
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from typing import Any, Generator
@@ -82,6 +83,14 @@ class ManagerAgent:
             if _is_confirmation(user_message) and state.candidate_plans:
                 schema.intent = "confirmation"
         state.planning_context = schema
+
+        # 打印语义分析结果
+        logger.info("=" * 60)
+        logger.info("[语义分析结果]")
+        logger.info(json.dumps(schema.model_dump(), ensure_ascii=False, indent=2))
+        logger.info("=" * 60)
+        logger.info("[timer] 🧠 语义分析  %.1fms", self._last_stage_ms())
+
         # 同步到旧 profile（兼容 planner 中仍使用 profile 的代码）
         if schema.party.size is not None:
             state.profile.party_size = schema.party.size
@@ -114,6 +123,7 @@ class ManagerAgent:
                 state.selected_plan_id = state.candidate_plans[0].id
             state.status = SessionStatus.executing
             state = self._exec.execute_plan(state)
+            logger.info("[timer] 🚀 执行落地  %.1fms", self._last_stage_ms())
             if state.last_error:
                 state = self._replan_after_failure(state)
                 return state, _format_replan_message(state, self._llm if use_llm else None)
@@ -142,6 +152,7 @@ class ManagerAgent:
         # 规划流水线: Map → Food → Leisure → Plan
         # ═══════════════════════════════════════════════════════════
         state = self._map.run(state, user_message)
+        logger.info("[timer] 🗺️  地图搜索  %.1fms", self._last_stage_ms())
         if state.planning_context and is_bad_outdoor(state.scratch.get("weather")):
             if state.planning_context.leisure.indoor_outdoor is None or state.planning_context.leisure.indoor_outdoor == "any":
                 state.planning_context.leisure.indoor_outdoor = "indoor"
@@ -150,15 +161,18 @@ class ManagerAgent:
                 state.planning_context.hard_constraints.append(msg)
 
         state = self._food.run(state, user_message)
+        logger.info("[timer] 🍜 美食搜索  %.1fms", self._last_stage_ms())
 
         state = self._leisure.run(state, user_message)
+        logger.info("[timer] 🎯 休闲探索  %.1fms", self._last_stage_ms())
 
         state = self._plan(state, excluded_poi_ids=set(), last_error=None)
+        logger.info("[timer] 📋 方案规划  %.1fms", self._last_stage_ms())
 
         # 去重：不同方案的 POI 集合不能相同（即使顺序不同）
         state = self._dedup_plans(state)
 
-        logger.info("[timer] total: %.1fms", TimerRegistry.total_ms())
+        logger.info("[timer] ✅ 总计  %.1fms", TimerRegistry.total_ms())
 
         if not state.candidate_plans:
             state.status = SessionStatus.awaiting_confirmation
@@ -199,6 +213,13 @@ class ManagerAgent:
             if _is_confirmation(user_message) and state.candidate_plans:
                 schema.intent = "confirmation"
         state.planning_context = schema
+
+        # 打印语义分析结果
+        logger.info("=" * 60)
+        logger.info("[语义分析结果]")
+        logger.info(json.dumps(schema.model_dump(), ensure_ascii=False, indent=2))
+        logger.info("=" * 60)
+
         if schema.party.size is not None:
             state.profile.party_size = schema.party.size
         if schema.party.has_child is not None:
@@ -209,7 +230,9 @@ class ManagerAgent:
         state.profile.style = _map_style(schema)
         if schema.food.budget_per_person:
             state.profile.budget_level = _budget_to_level(schema.food.budget_per_person)
-        yield _emit("semantic", "done", "需求理解完成", elapsed_ms=self._last_stage_ms())
+        semantic_ms = self._last_stage_ms()
+        logger.info("[timer] 🧠 语义分析  %.1fms", semantic_ms)
+        yield _emit("semantic", "done", "需求理解完成", elapsed_ms=semantic_ms)
 
         # ═══════════════════════════════════════════════════════════
         # 意图路由
@@ -233,7 +256,9 @@ class ManagerAgent:
 
             yield _emit("execution", "running", "正在执行方案...")
             state = self._exec.execute_plan(state)
-            yield _emit("execution", "done", "执行完成" if not state.last_error else "执行遇到问题", elapsed_ms=self._last_stage_ms())
+            exec_ms = self._last_stage_ms()
+            logger.info("[timer] 🚀 执行落地  %.1fms", exec_ms)
+            yield _emit("execution", "done", "执行完成" if not state.last_error else "执行遇到问题", elapsed_ms=exec_ms)
 
             if state.last_error:
                 yield _emit("plan", "running", "正在重新规划...")
@@ -271,23 +296,31 @@ class ManagerAgent:
             msg = "当前天气不适合户外，优先选择室内活动"
             if msg not in state.planning_context.hard_constraints:
                 state.planning_context.hard_constraints.append(msg)
-        yield _emit("map", "done", "位置与周边搜索完成", elapsed_ms=self._last_stage_ms())
+        map_ms = self._last_stage_ms()
+        logger.info("[timer] 🗺️  地图搜索  %.1fms", map_ms)
+        yield _emit("map", "done", "位置与周边搜索完成", elapsed_ms=map_ms)
 
         yield _emit("food", "running", "正在为您寻找美食...")
         state = self._food.run(state, user_message)
-        yield _emit("food", "done", "美食搜索完成", elapsed_ms=self._last_stage_ms())
+        food_ms = self._last_stage_ms()
+        logger.info("[timer] 🍜 美食搜索  %.1fms", food_ms)
+        yield _emit("food", "done", "美食搜索完成", elapsed_ms=food_ms)
 
         yield _emit("leisure", "running", "正在搜索休闲好去处...")
         state = self._leisure.run(state, user_message)
-        yield _emit("leisure", "done", "休闲探索完成", elapsed_ms=self._last_stage_ms())
+        leisure_ms = self._last_stage_ms()
+        logger.info("[timer] 🎯 休闲探索  %.1fms", leisure_ms)
+        yield _emit("leisure", "done", "休闲探索完成", elapsed_ms=leisure_ms)
 
         yield _emit("plan", "running", "正在生成行程方案...")
         state = self._plan(state, excluded_poi_ids=set(), last_error=None)
-        yield _emit("plan", "done", "方案生成完毕")
+        plan_ms = self._last_stage_ms()
+        logger.info("[timer] 📋 方案规划  %.1fms", plan_ms)
+        yield _emit("plan", "done", "方案生成完毕", elapsed_ms=plan_ms)
 
         state = self._dedup_plans(state)
 
-        logger.info("[timer] total: %.1fms", TimerRegistry.total_ms())
+        logger.info("[timer] ✅ 总计  %.1fms", TimerRegistry.total_ms())
 
         if not state.candidate_plans:
             state.status = SessionStatus.awaiting_confirmation

@@ -84,5 +84,8 @@ export const renderPlanCardsHtml = (plans, activeIdx) => {
     <button class="plan-arrow plan-arrow--left" data-nav="prev" data-count="${n}" type="button" aria-label="上一张">‹</button>
     <div class="plan-carousel__stage">${cards}</div>
     <button class="plan-arrow plan-arrow--right" data-nav="next" data-count="${n}" type="button" aria-label="下一张">›</button>
+  </div>
+  <div class="plan-actions" style="text-align:center;margin-top:14px">
+    <button class="btn btn--primary" id="map-toggle-btn" type="button">🗺️ 查看路线地图</button>
   </div>`
 }
