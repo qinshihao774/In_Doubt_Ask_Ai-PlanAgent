@@ -32,6 +32,10 @@ class Settings(BaseSettings):
 
     dashscope_app_id: str = ""
 
+    # 高德 JS API（前端路线地图展示专用，与后端 POI 搜索 Key 分开）
+    amap_js_key: str = ""
+    amap_security_code: str = ""
+
     max_queue_minutes: int = 60
 
 
