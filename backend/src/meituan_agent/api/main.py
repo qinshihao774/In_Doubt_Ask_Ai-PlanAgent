@@ -160,6 +160,22 @@ def create_app() -> FastAPI:
 
         return StreamingResponse(event_gen(), media_type="text/event-stream")
 
+    @app.get("/config/map", response_model=dict[str, Any])
+    def map_config() -> dict[str, Any]:
+        # 优先使用 JS API 专用 Key，未配置时回退到后端 POI 搜索 Key
+        js_key = container.settings.amap_js_key or container.settings.amap_api_key or ""
+        return {
+            "amap_key": js_key,
+            "amap_security_code": container.settings.amap_security_code or "",
+        }
+
+    @app.get("/plans/{session_id}", response_model=list[dict[str, Any]])
+    def get_plans(session_id: str) -> list[dict[str, Any]]:
+        state = svc.get_state(session_id)
+        if not state:
+            raise HTTPException(status_code=404, detail="session_not_found")
+        return [p.model_dump() for p in (state.candidate_plans or [])]
+
     @app.get("/state/{session_id}", response_model=dict[str, Any])
     def get_state(session_id: str) -> dict[str, Any]:
         state = svc.get_state(session_id)
