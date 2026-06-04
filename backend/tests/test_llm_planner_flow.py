@@ -69,9 +69,13 @@ def _build_service(tmp_path):
 def test_llm_structured_planning_and_replan(tmp_path):
     svc = _build_service(tmp_path)
     state, reply = svc.chat(session_id=None, message="下午2点出发，带5岁娃，老婆减脂，帮我规划4-6小时")
-    assert "LLM方案" in reply
-    assert any(it.poi.id == "poi_light_food_001" for it in state.candidate_plans[0].items)
+    # 规划阶段会先查排队。max_queue_minutes=0 时，poi_light_food_001 排队 15 分钟，
+    # 因此它会被前置过滤，LLM/启发式方案都不应再推荐它给用户确认。
+    used_ids = {it.poi.id for plan in state.candidate_plans for it in plan.items}
+    assert "poi_light_food_001" not in used_ids
+    assert "poi_cantonese_001" in used_ids
 
     state2, reply2 = svc.chat(session_id=state.session_id, message="确认 方案1")
-    assert "已触发自动重规划" in reply2
-    assert any(it.poi.id == "poi_cantonese_001" for it in state2.candidate_plans[0].items)
+    assert "方案已执行完毕" in reply2
+    assert any(ex.step == "reserve_restaurant" for ex in state2.executions)
+    assert any(ex.step == "place_order" for ex in state2.executions)
