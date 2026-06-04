@@ -13,6 +13,9 @@ export const state = {
   weather: null,
   sessions: [],
   activePlanIndex: 0,
+  activePlanIndexByMessage: {},
+  planPayloadByMessage: {},
+  pendingPlans: null,
 }
 
 export const loadState = () => {
@@ -33,4 +36,7 @@ export const resetState = () => {
   state.weather = null
   state.sessions = []
   state.activePlanIndex = 0
+  state.activePlanIndexByMessage = {}
+  state.planPayloadByMessage = {}
+  state.pendingPlans = null
 }

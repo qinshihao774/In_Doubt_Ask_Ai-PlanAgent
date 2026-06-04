@@ -1,7 +1,7 @@
 import './style.css'
 import { deleteSession, fetchMessages, fetchSessions, fetchState, fetchWeather, health, initSession, setPinned, streamChat } from './api'
 import { state, loadState, resetState } from './state'
-import { parsePlans, renderPlanCardsHtml } from './plans'
+import { parsePlans, plansFromPayload, renderPlanCardsHtml } from './plans'
 import { renderPipeline } from './pipeline'
 import { getBrowserLocation, reverseGeocodeNominatim } from './location'
 import { renderMap } from './map'
@@ -210,7 +210,7 @@ const setStatus = (mode) => {
 const renderMessages = () => {
   const box = document.querySelector('#messages')
   box.innerHTML = state.messages
-    .map((m) => {
+    .map((m, msgIdx) => {
       if (m.role === 'user') {
         return `<div class="message-row message-row--user">
           <div class="message-bubble message-bubble--user">${esc(m.content)}</div>
@@ -218,7 +218,9 @@ const renderMessages = () => {
         </div>`
       }
 
-      const { intro, plans } = parsePlans(m.content || '')
+      const structuredPlans = state.planPayloadByMessage?.[m.planKey]
+      const parsed = structuredPlans ? { intro: null, plans: plansFromPayload(structuredPlans) } : parsePlans(m.content || '')
+      const { intro, plans } = parsed
       if (!plans.length) {
         return `<div class="message-row message-row--assistant">
           <div class="avatar avatar--ai">AI</div>
@@ -226,19 +228,19 @@ const renderMessages = () => {
         </div>`
       }
 
-      const activeIdx = Math.min(state.activePlanIndex, plans.length - 1)
+      const activeIdx = Math.min(state.activePlanIndexByMessage?.[m.planKey] ?? 0, plans.length - 1)
       const introHtml = intro ? `<div class="plan-intro">${esc(intro)}</div>` : ''
-      const cardsHtml = renderPlanCardsHtml(plans, activeIdx)
+      const cardsHtml = renderPlanCardsHtml(plans, activeIdx, m.planKey || '')
       const dots = plans
-        .map((_, i) => `<button class="dot ${i === activeIdx ? 'dot--on' : ''}" data-dot="${i}" type="button">${i === activeIdx ? '●' : '○'}</button>`)
+        .map((_, i) => `<button class="dot ${i === activeIdx ? 'dot--on' : ''}" data-dot="${i}" data-plan-key="${esc(m.planKey || '')}" type="button">${i === activeIdx ? '●' : '○'}</button>`)
         .join('')
-      return `<div class="message-row message-row--assistant">
+      return `<div class="message-row message-row--assistant" data-message-idx="${msgIdx}">
         <div class="avatar avatar--ai">AI</div>
         <div class="plan-wrap">
           ${introHtml}
           ${cardsHtml}
           <div class="plan-actions">
-            <button class="btn btn--primary btn--block" data-pick="${activeIdx}" type="button">就选它！</button>
+            <button class="btn btn--primary btn--block" data-pick="${activeIdx}" data-plan-key="${esc(m.planKey || '')}" type="button">就选它！</button>
           </div>
           <div class="plan-dots">${dots}</div>
           <div class="plan-caption">方案 ${activeIdx + 1} / ${plans.length}</div>
@@ -249,13 +251,17 @@ const renderMessages = () => {
 
   box.querySelectorAll('[data-dot]').forEach((el) => {
     el.addEventListener('click', () => {
-      state.activePlanIndex = Number(el.getAttribute('data-dot') || '0') || 0
+      const key = el.getAttribute('data-plan-key') || ''
+      const idx = Number(el.getAttribute('data-dot') || '0') || 0
+      setActivePlanIndex(key, idx)
       renderMessages()
     })
   })
   box.querySelectorAll('[data-pick]').forEach((el) => {
     el.addEventListener('click', () => {
       const idx = Number(el.getAttribute('data-pick') || '0') || 0
+      const key = el.getAttribute('data-plan-key') || ''
+      setActivePlanIndex(key, idx)
       sendMessage(`确认 方案${idx + 1}`)
     })
   })
@@ -263,9 +269,11 @@ const renderMessages = () => {
     el.addEventListener('click', () => {
       const dir = el.getAttribute('data-nav')
       const n = Number(el.getAttribute('data-count') || '0') || 0
+      const key = el.closest('.plan-wrap')?.querySelector('[data-map-key]')?.getAttribute('data-map-key') || ''
       if (n <= 1) return
-      if (dir === 'prev') state.activePlanIndex = (state.activePlanIndex - 1 + n) % n
-      else state.activePlanIndex = (state.activePlanIndex + 1) % n
+      const cur = getActivePlanIndex(key)
+      if (dir === 'prev') setActivePlanIndex(key, (cur - 1 + n) % n)
+      else setActivePlanIndex(key, (cur + 1) % n)
       renderMessages()
     })
   })
@@ -280,23 +288,39 @@ const renderMessages = () => {
       const endX = e.changedTouches[0].clientX
       const diff = startX - endX
       const n = Number(carousel.getAttribute('data-count') || '0') || 0
+      const key = carousel.closest('.plan-wrap')?.querySelector('[data-map-key]')?.getAttribute('data-map-key') || ''
       if (n <= 1) return
       if (Math.abs(diff) < 50) return
-      if (diff > 0) state.activePlanIndex = (state.activePlanIndex + 1) % n
-      else state.activePlanIndex = (state.activePlanIndex - 1 + n) % n
+      const cur = getActivePlanIndex(key)
+      if (diff > 0) setActivePlanIndex(key, (cur + 1) % n)
+      else setActivePlanIndex(key, (cur - 1 + n) % n)
       renderMessages()
     })
   })
 
   // Map toggle button (re-attached each render since DOM is recreated)
-  const mapBtn = box.querySelector('#map-toggle-btn')
-  if (mapBtn) {
+  box.querySelectorAll('[data-map-key]').forEach((mapBtn) => {
     mapBtn.addEventListener('click', () => {
-      if (state.sessionId) renderMap(state.sessionId, state.activePlanIndex)
+      const key = mapBtn.getAttribute('data-map-key') || ''
+      const plans = state.planPayloadByMessage?.[key] || null
+      const idx = getActivePlanIndex(key)
+      if (state.sessionId) renderMap(state.sessionId, idx, plans)
     })
-  }
+  })
 
   box.scrollTop = box.scrollHeight
+}
+
+const getActivePlanIndex = (planKey) => {
+  if (!planKey) return state.activePlanIndex || 0
+  return state.activePlanIndexByMessage?.[planKey] ?? 0
+}
+
+const setActivePlanIndex = (planKey, idx) => {
+  const next = Number(idx || 0) || 0
+  state.activePlanIndex = next
+  if (!planKey) return
+  state.activePlanIndexByMessage[planKey] = next
 }
 
 const setLocationUi = () => {
@@ -449,6 +473,8 @@ const loadSession = async (sid) => {
   document.querySelector('#session-id').textContent = state.sessionId
   state.messages = []
   state.activePlanIndex = 0
+  state.activePlanIndexByMessage = {}
+  state.pendingPlans = null
   showProcessing(false)
   renderPipeline(document.querySelector('#pipeline'), [], {})
   updateThinking('正在加载历史对话...')
@@ -462,7 +488,7 @@ const loadSession = async (sid) => {
   } catch {}
   try {
     const msgs = await fetchMessages(state.apiBase, state.sessionId, 200)
-    state.messages = (msgs || []).map((m) => ({ role: m.role, content: m.content }))
+    state.messages = (msgs || []).map((m, idx) => ({ role: m.role, content: m.content, planKey: `${sid}_${idx}` }))
   } catch {
     state.messages = []
   }
@@ -494,6 +520,7 @@ const sendMessage = async (text) => {
   renderMessages()
 
   let accumulated = ''
+  let streamedPlans = null
   state.pipelineConfig = []
   state.pipelineStates = {}
   renderPipeline(document.querySelector('#pipeline'), [], {})
@@ -519,6 +546,12 @@ const sendMessage = async (text) => {
       }
       if (t === 'status') {
         updateThinking(ev.content || '处理中...')
+        return
+      }
+      if (t === 'plans') {
+        streamedPlans = ev.plans || []
+        state.pendingPlans = streamedPlans
+        updateThinking('方案已生成，正在整理说明...')
         return
       }
       if (t === 'delta') {
@@ -550,7 +583,13 @@ const sendMessage = async (text) => {
   const last = box.querySelector('.streaming')
   if (last) last.remove()
 
-  state.messages.push({ role: 'assistant', content: accumulated || '抱歉，服务暂时不可用。' })
+  const planKey = `msg_${Date.now()}_${state.messages.length}`
+  if (streamedPlans && streamedPlans.length) {
+    state.planPayloadByMessage[planKey] = streamedPlans
+    state.activePlanIndexByMessage[planKey] = 0
+  }
+  state.messages.push({ role: 'assistant', content: accumulated || '抱歉，服务暂时不可用。', planKey })
+  state.pendingPlans = null
   state.isProcessing = false
   showProcessing(false)
   renderMessages()

@@ -110,7 +110,7 @@ function addMarkers(map, items) {
 }
 
 // ── 主入口 ──
-export async function renderMap(sessionId, planIndex) {
+export async function renderMap(sessionId, planIndex, planPayload) {
   if (planIndex === undefined) planIndex = 0;
   const panel = document.getElementById('map-panel');
   const mapDiv = document.getElementById('map-container');
@@ -130,14 +130,16 @@ export async function renderMap(sessionId, planIndex) {
     return;
   }
 
-  let plans;
-  try {
-    const resp = await fetch((state.apiBase || location.origin) + '/plans/' + sessionId);
-    if (!resp.ok) throw new Error('plans fetch failed');
-    plans = await resp.json();
-  } catch (e) {
-    mapDiv.innerHTML = '<div style="padding:24px;text-align:center;color:rgba(231,233,255,.7)">⚠️ 无法获取行程数据</div>';
-    return;
+  let plans = Array.isArray(planPayload) && planPayload.length ? planPayload : null;
+  if (!plans) {
+    try {
+      const resp = await fetch((state.apiBase || location.origin) + '/plans/' + sessionId);
+      if (!resp.ok) throw new Error('plans fetch failed');
+      plans = await resp.json();
+    } catch (e) {
+      mapDiv.innerHTML = '<div style="padding:24px;text-align:center;color:rgba(231,233,255,.7)">⚠️ 无法获取行程数据</div>';
+      return;
+    }
   }
   if (!plans || !plans.length) {
     mapDiv.innerHTML = '<div style="padding:24px;text-align:center;color:rgba(231,233,255,.7)">📋 暂无行程方案</div>';
