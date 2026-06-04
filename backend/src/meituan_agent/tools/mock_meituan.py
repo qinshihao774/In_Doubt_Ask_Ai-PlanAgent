@@ -21,10 +21,11 @@ DEFAULT_POIS: list[dict[str, Any]] = [
         "price_level": 2,
         "tags": ["轻食", "沙拉", "减脂"],
         "duration_minutes": 70,
+        "open_hours": "10:00-21:00",
         "menu": [
-            {"name": "鸡胸肉能量碗", "price": 39},
-            {"name": "牛油果藜麦沙拉", "price": 36},
-            {"name": "低糖酸奶杯", "price": 18},
+            {"name": "鸡胸肉能量碗", "price": 39, "tags": ["低脂", "高蛋白"]},
+            {"name": "牛油果藜麦沙拉", "price": 36, "tags": ["低卡", "减脂"]},
+            {"name": "低糖酸奶杯", "price": 18, "tags": ["低糖"]},
         ],
     },
     {
@@ -39,6 +40,7 @@ DEFAULT_POIS: list[dict[str, Any]] = [
         "price_level": 3,
         "tags": ["粤菜", "家庭聚餐"],
         "duration_minutes": 90,
+        "open_hours": "11:00-22:00",
         "menu": [
             {"name": "虾饺皇", "price": 36},
             {"name": "烧味双拼", "price": 68},
@@ -57,6 +59,7 @@ DEFAULT_POIS: list[dict[str, Any]] = [
         "price_level": 2,
         "tags": ["亲子", "游乐", "儿童"],
         "duration_minutes": 120,
+        "open_hours": "09:30-20:30",
     },
     {
         "id": "poi_book_001",
@@ -70,6 +73,7 @@ DEFAULT_POIS: list[dict[str, Any]] = [
         "price_level": 1,
         "tags": ["亲子", "绘本", "阅读"],
         "duration_minutes": 80,
+        "open_hours": "10:00-19:00",
     },
     {
         "id": "poi_exhibit_001",
@@ -83,6 +87,7 @@ DEFAULT_POIS: list[dict[str, Any]] = [
         "price_level": 2,
         "tags": ["展览", "艺术", "朋友"],
         "duration_minutes": 100,
+        "open_hours": "10:00-21:00",
     },
 ]
 
@@ -126,6 +131,10 @@ class MockMeituanTools(POISearchTool, MenuInfoTool, AvailabilityTool, OrderTool)
             "poi_id": poi_id,
             "queue_minutes": queue_minutes,
             "party_size": size,
+            "capacity_ok": size <= 6,
+            "business_open": True,
+            "reservable_slots": ["14:30", "16:00", "17:30", "18:30"],
+            "table_available": size <= 6,
         }
 
     def place_order(self, poi_id: str, *, items: list[dict[str, Any]], user_notes: str | None = None) -> dict[str, Any]:

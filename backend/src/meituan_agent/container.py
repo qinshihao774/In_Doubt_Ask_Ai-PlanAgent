@@ -71,9 +71,9 @@ class Container:
         root = Path(__file__).resolve().parents[3]
         dotenv_path = root / ".env"
         if dotenv_path.exists():
-            load_dotenv(dotenv_path=dotenv_path, override=True)
+            load_dotenv(dotenv_path=dotenv_path, override=False)
         else:
-            load_dotenv(override=True)
+            load_dotenv(override=False)
         self.settings = load_settings()
         data_dir = Path(self.settings.data_dir)
         if not data_dir.is_absolute():

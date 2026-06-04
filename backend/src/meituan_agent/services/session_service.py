@@ -23,22 +23,18 @@ class SessionService:
 
     def set_bootstrap_location(self, session_id: str, location: Location | None) -> SessionState:
         state = self.ensure_session(session_id)
-        if location and not state.scratch.get("location_hint"):
-            state.location = location
-            state.scratch["bootstrap_location"] = location.model_dump()
-            state.scratch["location_source"] = "bootstrap"
+        if location:
+            self._apply_bootstrap_location(state, location)
             self._memory.put_state(state)
         return state
 
     def chat(self, *, session_id: str | None, message: str, bootstrap_location: Location | None = None) -> tuple[SessionState, str]:
         state = self.ensure_session(session_id)
+        if bootstrap_location:
+            self._apply_bootstrap_location(state, bootstrap_location)
         hint = extract_location_hint(message)
         if hint:
             state.scratch["location_hint"] = hint
-        if bootstrap_location and not state.scratch.get("location_hint"):
-            state.location = bootstrap_location
-            state.scratch["bootstrap_location"] = bootstrap_location.model_dump()
-            state.scratch["location_source"] = "bootstrap"
         self._memory.append_message(state.session_id, ChatMessage(role="user", content=message))
         msgs = self._memory.list_messages(state.session_id, limit=18)
         state.scratch["recent_messages"] = [{"role": m.role, "content": m.content} for m in msgs]
@@ -51,13 +47,11 @@ class SessionService:
 
     def chat_raw(self, *, session_id: str | None, message: str, bootstrap_location: Location | None = None) -> tuple[SessionState, str]:
         state = self.ensure_session(session_id)
+        if bootstrap_location:
+            self._apply_bootstrap_location(state, bootstrap_location)
         hint = extract_location_hint(message)
         if hint:
             state.scratch["location_hint"] = hint
-        if bootstrap_location and not state.scratch.get("location_hint"):
-            state.location = bootstrap_location
-            state.scratch["bootstrap_location"] = bootstrap_location.model_dump()
-            state.scratch["location_source"] = "bootstrap"
         self._memory.append_message(state.session_id, ChatMessage(role="user", content=message))
         msgs = self._memory.list_messages(state.session_id, limit=18)
         state.scratch["recent_messages"] = [{"role": m.role, "content": m.content} for m in msgs]
@@ -69,6 +63,12 @@ class SessionService:
 
     def append_assistant(self, session_id: str, reply: str) -> None:
         self._memory.append_message(session_id, ChatMessage(role="assistant", content=reply))
+
+    def _apply_bootstrap_location(self, state: SessionState, location: Location) -> None:
+        state.location = location
+        state.scratch["bootstrap_location"] = location.model_dump()
+        state.scratch["location_source"] = "bootstrap"
+        state.scratch.pop("location_hint_rejected", None)
 
     def get_state(self, session_id: str) -> SessionState | None:
         return self._memory.get_state(session_id)

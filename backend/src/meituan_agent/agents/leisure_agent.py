@@ -34,6 +34,14 @@ class LeisureAgent(Agent):
             search_tags = ["展览", "休闲"]
 
         candidates: list[POI] = []
+        intended = state.scratch.get("intended_place_poi")
+        if intended:
+            try:
+                poi = POI.model_validate(intended)
+                if poi.category != "餐饮":
+                    candidates.append(poi)
+            except Exception:
+                pass
         for t in search_tags:
             candidates.extend(
                 _search_incrementally(self._poi_search, tag=t, location=state.location, min_results=6)

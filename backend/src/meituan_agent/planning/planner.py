@@ -6,7 +6,9 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from meituan_agent.domain.models import ItineraryItem, ItineraryPlan, Location, POI, SessionState
+from meituan_agent.planning.constraints import annotate_plan, filter_pois
 from meituan_agent.planning.schema import PlanningOutput
+from meituan_agent.planning.scheduler import schedule_plans
 from meituan_agent.services.weather_service import is_bad_outdoor
 from meituan_agent.tools.base import MapTool, POISearchTool
 
@@ -76,7 +78,7 @@ class HeuristicPlanner:
         if len(food) >= 2 and len(leisure) >= 3:
             plans.append(self._build_plan(state.location, "推荐方案C", "备选推荐", [l2, r2, l3]))
 
-        return plans[:3]
+        return _finalize_plans(state, plans[:3])
 
     def _build_plan(self, origin: Location | None, title: str, rationale: str, pois: list[POI]) -> ItineraryPlan:
         items = [ItineraryItem(poi=p) for p in pois]
@@ -98,11 +100,14 @@ class LLMPlanner:
         weather = state.scratch.get("weather")
 
         if not food:
-            food = [
+            food = _filter_for_state(
+                state,
+                [
                 p
                 for p in self._poi_search.search_poi(tag="轻食" if state.profile.fat_loss else "餐饮", location=state.location)
                 if p.category == "餐饮"
-            ]
+                ],
+            )
         if not leisure:
             if is_bad_outdoor(weather):
                 tags = ["博物馆", "展览", "咖啡", "商场", "剧本杀"]
@@ -111,13 +116,16 @@ class LLMPlanner:
             out: list[POI] = []
             for t in tags:
                 out.extend(self._poi_search.search_poi(tag=t, location=state.location))
-            leisure = [p for p in out if p.category != "餐饮"]
+            leisure = _filter_for_state(state, [p for p in out if p.category != "餐饮"])
 
-        food = [p for p in food if p.id not in inp.excluded_poi_ids][:8]
-        leisure = [p for p in leisure if p.id not in inp.excluded_poi_ids][:12]
+        food = _filter_for_state(state, [p for p in food if p.id not in inp.excluded_poi_ids])[:8]
+        leisure = _filter_for_state(state, [p for p in leisure if p.id not in inp.excluded_poi_ids])[:12]
 
         if not food:
-            food = [p for p in self._poi_search.search_poi(tag="餐饮", location=state.location) if p.category == "餐饮"]
+            food = _filter_for_state(
+                state,
+                [p for p in self._poi_search.search_poi(tag="餐饮", location=state.location) if p.category == "餐饮"],
+            )
             food = [p for p in food if p.id not in inp.excluded_poi_ids][:8]
 
         candidates = food + leisure
@@ -144,13 +152,22 @@ class LLMPlanner:
             if state.location:
                 items = _enrich_routes(self._map, state.location, items)
             plans.append(ItineraryPlan(id=f"plan_{uuid.uuid4().hex[:8]}", title=pc.title, items=items, rationale=pc.rationale))
-        return plans[:3]
+        return _finalize_plans(state, plans[:3])
+
+
+def _finalize_plans(state: SessionState, plans: list[ItineraryPlan]) -> list[ItineraryPlan]:
+    scheduled = schedule_plans(state, plans[:3])
+    return [annotate_plan(state, plan) for plan in scheduled]
 
 
 def _pois_from_scratch(state: SessionState, key: str, *, excluded: set[str]) -> list[POI]:
     raw = state.scratch.get(key) or []
     pois = [POI.model_validate(x) for x in raw]
     return [p for p in pois if p.id not in excluded]
+
+
+def _filter_for_state(state: SessionState, pois: list[POI]) -> list[POI]:
+    return filter_pois(state, pois)
 
 
 def _enrich_routes(map_tool: MapTool, origin: Location, items: list[ItineraryItem]) -> list[ItineraryItem]:

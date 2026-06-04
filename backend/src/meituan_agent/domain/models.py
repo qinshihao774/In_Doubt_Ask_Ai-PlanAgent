@@ -63,6 +63,24 @@ class ItineraryItem(BaseModel):
     end: str | None = None
     travel_from_prev: RouteLeg | None = None
     notes: str | None = None
+    availability: dict[str, Any] | None = None
+
+
+class PlanAction(BaseModel):
+    """A concrete operation that can be executed after the user confirms a plan."""
+
+    type: Literal[
+        "check_availability",
+        "reserve_restaurant",
+        "place_food_order",
+        "book_activity",
+        "arrange_visit",
+        "notify_user",
+    ]
+    poi_id: str
+    scheduled_time: str | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
+    required: bool = True
 
 
 class ItineraryPlan(BaseModel):
@@ -70,6 +88,9 @@ class ItineraryPlan(BaseModel):
     title: str
     items: list[ItineraryItem]
     rationale: str
+    total_minutes: int | None = None
+    actions: list[PlanAction] = Field(default_factory=list)
+    validation: dict[str, Any] = Field(default_factory=dict)
 
 
 class LocationConstraint(BaseModel):

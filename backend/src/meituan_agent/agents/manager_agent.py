@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from typing import Any, Generator
 
 from meituan_agent.agents.execution_agent import ExecutionAgent
@@ -20,6 +21,7 @@ from meituan_agent.agents.map_agent import MapAgent
 from meituan_agent.agents.semantic_agent import SemanticAgent
 from meituan_agent.domain.models import SemanticSchema, SessionState, SessionStatus
 from meituan_agent.llm.openai_compat import OpenAICompatClient
+from meituan_agent.planning.constraints import enrich_restaurant_availability, filter_candidates
 from meituan_agent.planning.planner import Planner, PlanningInput
 from meituan_agent.services.weather_service import is_bad_outdoor
 from meituan_agent.timing_aspect import TimerRegistry
@@ -79,6 +81,7 @@ class ManagerAgent:
             )
         else:
             schema = SemanticSchema()
+            schema = _rule_based_schema_patch(schema, user_message)
             # 补充：无 LLM 时用关键词判断确认意图
             if _is_confirmation(user_message) and state.candidate_plans:
                 schema.intent = "confirmation"
@@ -91,17 +94,7 @@ class ManagerAgent:
         logger.info("=" * 60)
         logger.info("[timer] 🧠 语义分析  %.1fms", self._last_stage_ms())
 
-        # 同步到旧 profile（兼容 planner 中仍使用 profile 的代码）
-        if schema.party.size is not None:
-            state.profile.party_size = schema.party.size
-        if schema.party.has_child is not None:
-            state.profile.has_child = schema.party.has_child
-        state.profile.fat_loss = bool(schema.food.dietary)
-        if schema.timing.duration_hours is not None:
-            state.profile.duration_hours = schema.timing.duration_hours
-        state.profile.style = _map_style(schema)
-        if schema.food.budget_per_person:
-            state.profile.budget_level = _budget_to_level(schema.food.budget_per_person)
+        state = self._sync_profile_from_schema(state, schema)
 
         if schema.intent != "confirmation" and state.candidate_plans and _is_confirmation(user_message):
             schema.intent = "confirmation"
@@ -161,9 +154,16 @@ class ManagerAgent:
                 state.planning_context.hard_constraints.append(msg)
 
         state = self._food.run(state, user_message)
+        state = enrich_restaurant_availability(
+            state,
+            self._exec.availability_tool,
+            max_queue_minutes=self._exec.max_queue_minutes,
+        )
+        state = filter_candidates(state)
         logger.info("[timer] 🍜 美食搜索  %.1fms", self._last_stage_ms())
 
         state = self._leisure.run(state, user_message)
+        state = filter_candidates(state)
         logger.info("[timer] 🎯 休闲探索  %.1fms", self._last_stage_ms())
 
         state = self._plan(state, excluded_poi_ids=set(), last_error=None)
@@ -210,6 +210,7 @@ class ManagerAgent:
             )
         else:
             schema = SemanticSchema()
+            schema = _rule_based_schema_patch(schema, user_message)
             if _is_confirmation(user_message) and state.candidate_plans:
                 schema.intent = "confirmation"
         state.planning_context = schema
@@ -220,16 +221,7 @@ class ManagerAgent:
         logger.info(json.dumps(schema.model_dump(), ensure_ascii=False, indent=2))
         logger.info("=" * 60)
 
-        if schema.party.size is not None:
-            state.profile.party_size = schema.party.size
-        if schema.party.has_child is not None:
-            state.profile.has_child = schema.party.has_child
-        state.profile.fat_loss = bool(schema.food.dietary)
-        if schema.timing.duration_hours is not None:
-            state.profile.duration_hours = schema.timing.duration_hours
-        state.profile.style = _map_style(schema)
-        if schema.food.budget_per_person:
-            state.profile.budget_level = _budget_to_level(schema.food.budget_per_person)
+        state = self._sync_profile_from_schema(state, schema)
         semantic_ms = self._last_stage_ms()
         logger.info("[timer] 🧠 语义分析  %.1fms", semantic_ms)
         yield _emit("semantic", "done", "需求理解完成", elapsed_ms=semantic_ms)
@@ -302,12 +294,19 @@ class ManagerAgent:
 
         yield _emit("food", "running", "正在为您寻找美食...")
         state = self._food.run(state, user_message)
+        state = enrich_restaurant_availability(
+            state,
+            self._exec.availability_tool,
+            max_queue_minutes=self._exec.max_queue_minutes,
+        )
+        state = filter_candidates(state)
         food_ms = self._last_stage_ms()
         logger.info("[timer] 🍜 美食搜索  %.1fms", food_ms)
         yield _emit("food", "done", "美食搜索完成", elapsed_ms=food_ms)
 
         yield _emit("leisure", "running", "正在搜索休闲好去处...")
         state = self._leisure.run(state, user_message)
+        state = filter_candidates(state)
         leisure_ms = self._last_stage_ms()
         logger.info("[timer] 🎯 休闲探索  %.1fms", leisure_ms)
         yield _emit("leisure", "done", "休闲探索完成", elapsed_ms=leisure_ms)
@@ -326,6 +325,7 @@ class ManagerAgent:
             state.status = SessionStatus.awaiting_confirmation
             return state, _format_plan_message(state, self._llm if use_llm else None)
 
+        yield {"type": "plans", "plans": [p.model_dump() for p in state.candidate_plans]}
         state.status = SessionStatus.awaiting_confirmation
         return state, _format_plan_message(state, self._llm if use_llm else None)
 
@@ -390,6 +390,25 @@ class ManagerAgent:
             return self._llm.chat(system=system, user=user)
         except Exception:
             return "你好呀！今天有什么可以帮你的吗？"
+
+    def _sync_profile_from_schema(self, state: SessionState, schema: SemanticSchema) -> SessionState:
+        if schema.party.size is not None:
+            state.profile.party_size = schema.party.size
+        elif _looks_like_friends_group(schema) and state.profile.party_size < 4:
+            state.profile.party_size = 4
+        if schema.party.has_child is not None:
+            state.profile.has_child = schema.party.has_child
+        state.profile.fat_loss = bool(schema.food.dietary)
+        if schema.timing.duration_hours is not None:
+            state.profile.duration_hours = schema.timing.duration_hours
+        if schema.timing.start:
+            state.profile.start_time = schema.timing.start
+        elif not state.profile.start_time:
+            state.profile.start_time = "14:00"
+        state.profile.style = _map_style(schema)
+        if schema.food.budget_per_person:
+            state.profile.budget_level = _budget_to_level(schema.food.budget_per_person)
+        return state
 
     def _conversation_text(self, state: SessionState, user_message: str) -> str | None:
         raw = state.scratch.get("recent_messages")
@@ -461,6 +480,59 @@ def _map_style(schema: SemanticSchema) -> str:
     return "mixed"
 
 
+def _looks_like_friends_group(schema: SemanticSchema) -> bool:
+    text = " ".join(
+        [
+            schema.party.composition or "",
+            schema.food.occasion or "",
+            schema.leisure.vibe or "",
+            schema.free_text_summary or "",
+            " ".join(schema.hard_constraints or []),
+        ]
+    )
+    return any(k in text for k in ["朋友", "2男2女", "两男两女", "四个人", "4个人"])
+
+
+def _rule_based_schema_patch(schema: SemanticSchema, text: str) -> SemanticSchema:
+    t = text or ""
+    if any(k in t for k in ["孩子", "娃", "宝宝", "儿童", "亲子"]):
+        schema.party.has_child = True
+        child = re.search(r"(\d+)\s*岁", t)
+        if child:
+            schema.party.child_age = int(child.group(1))
+    if any(k in t for k in ["减脂", "低卡", "轻食", "少油"]):
+        schema.food.dietary = list({*(schema.food.dietary or []), "减脂"})
+        schema.food.cuisine_types = list({*(schema.food.cuisine_types or []), "轻食"})
+    if any(k in t for k in ["朋友", "2男2女", "两男两女"]):
+        schema.party.composition = schema.party.composition or "朋友聚会"
+    if any(k in t for k in ["4个人", "四个人", "2男2女", "两男两女"]):
+        schema.party.size = 4
+    elif schema.party.has_child:
+        schema.party.size = max(schema.party.size or 0, 3)
+    duration = re.search(r"(\d+)\s*[-到至]\s*(\d+)\s*小时", t)
+    if duration:
+        lo = int(duration.group(1))
+        hi = int(duration.group(2))
+        schema.timing.duration_hours = max(lo, min(hi, 5))
+    elif "半天" in t:
+        schema.timing.duration_hours = 5
+    start = re.search(r"(上午|中午|下午|晚上)?\s*(\d{1,2})\s*点(?:半|(\d{1,2})分?)?", t)
+    if start:
+        prefix = start.group(1) or ""
+        minute = "30" if "半" in start.group(0) else (start.group(3) or "00")
+        hour = int(start.group(2))
+        if prefix in {"下午", "晚上"} and hour < 12:
+            hour += 12
+        if prefix == "中午" and hour < 11:
+            hour += 12
+        schema.timing.start = f"{hour:02d}:{int(minute):02d}"
+    if any(k in t for k in ["附近", "周边", "别太远", "不远", "就近"]):
+        schema.location.type = "current_gps"
+        schema.location.must_not_exceed = True
+        schema.location.radius_km = schema.location.radius_km or 3.0
+    return schema
+
+
 def _budget_to_level(amount: int) -> int:
     if amount <= 80:
         return 1
@@ -492,6 +564,13 @@ def _extract_plan_choice(text: str, state: SessionState) -> str | None:
 
 def _format_plan_message(state: SessionState, llm: OpenAICompatClient | None = None) -> str:
     if not state.candidate_plans:
+        venue = state.scratch.get("venue_constraint")
+        if isinstance(venue, dict) and venue.get("require_inside") and venue.get("name"):
+            return (
+                f"当前没有找到能够确认位于{venue['name']}内的可用餐饮/活动商家。"
+                "为避免把附近商家误说成场馆内，已过滤缺少地址、商圈或店名归属证据的候选。"
+                "如果要做到准确下单/订座，需要接入美团商户详情；也可以把条件放宽为场馆附近。"
+            )
         return "当前无法生成可用方案，请补充人数/偏好/地点。"
     lines = []
     if state.location:
@@ -514,19 +593,30 @@ def _format_plan_message(state: SessionState, llm: OpenAICompatClient | None = N
     for idx, plan in enumerate(state.candidate_plans, start=1):
         lines.append("")
         lines.append(f"方案{idx}：{plan.title}")
-        lines.append(f"理由：{plan.rationale}")
+        duration = f"总时长约{round(plan.total_minutes / 60, 1)}小时；" if plan.total_minutes else ""
+        lines.append(f"理由：{duration}{plan.rationale}")
+        validation = plan.validation or {}
+        satisfied = validation.get("satisfied") or []
+        if satisfied:
+            lines.append(f"已满足：{'；'.join(str(x) for x in satisfied[:3])}")
+        warnings = validation.get("warnings") or []
+        if warnings:
+            lines.append(f"提醒：{'；'.join(str(x) for x in warnings[:2])}")
         for it in plan.items:
             leg = it.travel_from_prev
             prefix = ""
             if leg:
                 prefix = f"（{leg.mode} {leg.minutes}min/{leg.distance_km}km）"
-            parts = [f"- {it.poi.name} [{it.poi.category}]"]
+            time_part = f"{it.start}-{it.end} " if it.start and it.end else ""
+            parts = [f"- {time_part}{it.poi.name} [{it.poi.category}]"]
             if it.poi.address:
                 parts.append(it.poi.address)
             if it.poi.distance_from_user is not None:
                 parts.append(f"距检索中心约{it.poi.distance_from_user}km")
             if prefix:
                 parts.append(prefix)
+            if it.notes:
+                parts.append(f"备注：{it.notes}")
             lines.append(" ".join(parts))
     return "\n".join(lines).strip()
 
@@ -548,6 +638,10 @@ def _format_execution_summary(state: SessionState) -> str:
                     status = "已下单"
                     if items_list:
                         order_detail = f"  → 已点: {', '.join(str(x) for x in items_list)}"
+                elif ex.step == "reserve_restaurant":
+                    status = "已预约餐位"
+                elif ex.step == "book_activity":
+                    status = "已预约活动"
                 elif ex.step == "arrange_visit":
                     status = "已安排到访"
 
@@ -555,7 +649,8 @@ def _format_execution_summary(state: SessionState) -> str:
         if item.travel_from_prev:
             leg = f"（{item.travel_from_prev.mode} {item.travel_from_prev.minutes}分钟/{item.travel_from_prev.distance_km}km）"
 
-        lines.append(f"{i}. {item.poi.name} [{item.poi.category}] {leg}")
+        time_part = f"{item.start}-{item.end} " if item.start and item.end else ""
+        lines.append(f"{i}. {time_part}{item.poi.name} [{item.poi.category}] {leg}")
         if item.poi.address:
             lines.append(f"   📍 {item.poi.address}")
         if status:
